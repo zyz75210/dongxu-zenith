@@ -1,0 +1,66 @@
+import React, { memo } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { C } from '../theme';
+import { Schedule, ScheduleType } from '../data';
+import ScheduleStatusPill, { PillState } from './ScheduleStatusPill';
+
+/** 类型中文名：tag 缺失时兜底 */
+export const TYPE_NAME: Record<ScheduleType, string> = {
+  work: '工作', sport: '运动', study: '学习',
+  activity: '活动', important: '重要', other: '其他',
+};
+
+type Props = {
+  item: Schedule;
+  /** 今天的日期键：用来判断"隔天未完成 = 超时" */
+  todayKey: string;
+  /** 点整条：看详情 */
+  onPress: () => void;
+  /** 点右侧类型胶囊：切换完成状态 */
+  onToggle: () => void;
+};
+
+/**
+ * 日程胶囊 —— 主页当天列表和历史日程共用同一个组件，
+ * 这样两处的圆角、内边距、字号、状态胶囊完全一致（改一处两边同步）。
+ */
+function ScheduleCapsule({ item, todayKey, onPress, onToggle }: Props) {
+  const state: PillState = item.completed
+    ? 'done'
+    : item.date < todayKey
+      ? 'overdue'
+      : 'default';
+
+  return (
+    <TouchableOpacity style={styles.capsule} activeOpacity={0.75} onPress={onPress}>
+      <View style={[styles.dot, { backgroundColor: C.typeDot[item.type] }]} />
+      <View style={styles.body}>
+        <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
+        <Text style={styles.time}>{item.start} — {item.end}</Text>
+      </View>
+      <ScheduleStatusPill
+        label={item.tag || TYPE_NAME[item.type]}
+        state={state}
+        onPress={onToggle}
+      />
+    </TouchableOpacity>
+  );
+}
+
+const styles = StyleSheet.create({
+  capsule: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: C.white,
+    borderWidth: 1, borderColor: C.line,
+    borderRadius: 999,
+    paddingVertical: 13, paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  dot: { width: 9, height: 9, borderRadius: 5, marginRight: 12 },
+  body: { flex: 1 },
+  title: { fontSize: 13, fontWeight: '500', color: C.text },
+  time: { fontSize: 11, color: C.gray, marginTop: 3 },
+});
+
+// 列表里可能有几十条，memo 让没变化的那几条跳过重渲染
+export default memo(ScheduleCapsule);
