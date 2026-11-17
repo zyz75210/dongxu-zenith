@@ -26,6 +26,12 @@
     },
     "plugins": [
       "expo-status-bar"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "adc38a70-7cf5-4da9-b20a-5b981acf30c2"
+      }
+    },
+    "owner": "zyzok"
   }
 }
