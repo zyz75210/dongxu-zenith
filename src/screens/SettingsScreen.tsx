@@ -6,18 +6,15 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { C } from '../theme';
 import { APP_VERSION_LABEL } from '../version';
 import {
+  checkNotifyHealth,
   countScheduled,
-  ensureChannel,
-  getChannelStatus,
-  getPermissionState,
   needsBatteryHint,
-  openAppSystemSettings,
-  requestPermissionIfNeeded,
   sendTestNotification,
   REMIND_MINUTES,
   type ChannelStatus,
   type PermissionState,
 } from '../notifications';
+import type { GuideKind } from '../components/NotifyGuideSheet';
 
 type Props = {
   onBack: () => void;
@@ -28,8 +25,11 @@ type Props = {
   visible?: boolean;
   /** 刚拿到通知权限：让上层重排一次提醒 */
   onRemindersChanged: () => void;
-  /** 打开省电策略引导（弹窗放在 App 根部，与授权后自动弹的是同一个） */
-  onNeedBatteryHint: () => void;
+  /**
+   * 打开通知引导（面板放在 App 根部，权限 / 渠道 / 省电策略共用同一个）：
+   * 体检出卡在哪一步就弹哪一种，不要闷头把用户丢进系统设置。
+   */
+  onShowNotifyGuide: (kind: GuideKind) => void;
 };
 
 /** 权限状态 -> 右侧文案 */
@@ -45,7 +45,7 @@ const permText: Record<PermissionState | 'checking', string> = {
  * 版式沿用"我的"页的分组卡片，后续要加新设置项直接往 card 里加 row 即可。
  */
 function SettingsScreen({
-  onBack, onOpenHistory, scheduleCount, visible = true, onRemindersChanged, onNeedBatteryHint,
+  onBack, onOpenHistory, scheduleCount, visible = true, onRemindersChanged, onShowNotifyGuide,
 }: Props) {
   const [perm, setPerm] = useState<PermissionState | 'checking'>('checking');
   /** 系统里已排程的提醒条数：这是"真的排上了"的证据，不是 UI 假状态 */
@@ -57,6 +57,8 @@ function SettingsScreen({
    * 通知大概率不显示 —— 这件事必须让用户看见，不能只显示权限"已开启"。
    */
   const [chan, setChan] = useState<ChannelStatus>({ ready: true, degraded: false, error: null });
+  /** 渠道被用户在系统里关掉（importance = NONE）：权限看着正常，通知却会被静默丢弃 */
+  const [muted, setMuted] = useState(false);
 
   /**
    * 省电策略这一行：安卓一律显示（出口总是有用的），
@@ -73,12 +75,13 @@ function SettingsScreen({
   }, []);
 
   const refresh = useCallback(async () => {
-    const p = await getPermissionState();
-    setPerm(p);
+    // 只查不弹：打开设置页不该触发系统授权框
+    // 体检内部会顺手重试一次建渠道（用户可能刚在系统里放开权限）
+    const health = await checkNotifyHealth();
+    setPerm(health.permission);
+    setChan(health.channel);
+    setMuted(health.channelMuted);
     setPending(await countScheduled());
-    // 顺便重试一次建渠道：用户可能刚在系统里放开权限，渠道之前才建失败过
-    await ensureChannel();
-    setChan(getChannelStatus());
   }, []);
 
   // 每次打开设置页都重新查一遍（权限可能在系统设置里被改过）
@@ -100,24 +103,38 @@ function SettingsScreen({
     if (noteTimer.current) clearTimeout(noteTimer.current);
   }, []);
 
-  /** 开启通知：弹系统授权；已拒绝则引导去系统设置 */
+  /**
+   * 开启通知：先体检，再决定弹什么。
+   *
+   * 三种结果对应三个出口，不能都甩给"去系统设置"：
+   * - 未决 → 弹系统授权框（用户此刻点了这一行，授权最容易被接受）
+   * - 已拒绝 → 弹 permission 引导，说清为什么必须去系统里开
+   * - 权限开着但渠道被关 → 弹 channel 引导，否则用户会以为"明明是开的"
+   */
   const enable = useCallback(async () => {
     if (busy) return;
     setBusy(true);
     try {
-      const state = await requestPermissionIfNeeded();
-      setPerm(state);
-      if (state === 'granted') {
-        onRemindersChanged();          // 上层按最新日程重排
-        say(`通知已开启，将为未来 ${REMIND_MINUTES} 分钟内的日程排提醒`);
-      } else if (state === 'denied') {
-        say('系统里已关闭本 App 的通知，请到「系统设置 → 通知」里手动允许');
-      }
+      const health = await checkNotifyHealth({ request: true });
+      setPerm(health.permission);
+      setChan(health.channel);
+      setMuted(health.channelMuted);
       setPending(await countScheduled());
+
+      if (health.blocker) {
+        onShowNotifyGuide(health.blocker);
+        say(health.blocker === 'permission'
+          ? '系统里本 App 的通知是关闭的，日程到点不会提醒'
+          : '通知权限开着，但提醒渠道被关闭了，通知会被系统丢弃');
+        return;
+      }
+
+      onRemindersChanged();             // 上层按最新日程重排
+      say(`通知已开启，每条日程开始前 ${REMIND_MINUTES} 分钟会提醒你`);
     } finally {
       setBusy(false);
     }
-  }, [busy, onRemindersChanged, say]);
+  }, [busy, onRemindersChanged, onShowNotifyGuide, say]);
 
   /** 5 秒后发一条：验证 权限 → 渠道 → 排程 → 展示 整条链路 */
   const test = useCallback(async () => {
@@ -130,12 +147,14 @@ function SettingsScreen({
         say('已排程：5 秒后到达。可以退回桌面或锁屏，通知照样会弹');
         setTimeout(() => { void refresh(); }, 6500);
       } else {
-        say('没有通知权限，先在下面开启再去系统里允许');
+        // 没权限时别只说"失败了"：直接给能解决问题的面板
+        onShowNotifyGuide('permission');
+        say('没有通知权限，先按提示打开再来测');
       }
     } finally {
       setBusy(false);
     }
-  }, [busy, refresh, say]);
+  }, [busy, refresh, say, onShowNotifyGuide]);
 
   const denied = perm === 'denied';
 
@@ -178,7 +197,7 @@ function SettingsScreen({
         <View style={styles.card}>
           <TouchableOpacity
             style={styles.row}
-            onPress={denied ? openAppSystemSettings : enable}
+            onPress={() => void enable()}
             activeOpacity={0.6}
             disabled={busy}
           >
@@ -186,7 +205,7 @@ function SettingsScreen({
               <Ionicons name="notifications-outline" size={16} color={C.primary} />
             </View>
             <Text style={styles.label}>提醒与通知</Text>
-            <Text style={[styles.value, perm === 'granted' && styles.valueOn]}>
+            <Text style={[styles.value, perm === 'granted' && !muted && styles.valueOn]}>
               {permText[perm]}
             </Text>
             <Ionicons name="chevron-forward-outline" size={15} color={C.gray} />
@@ -196,7 +215,11 @@ function SettingsScreen({
           {isAndroid ? (
             <>
               <View style={styles.divider} />
-              <TouchableOpacity style={styles.row} onPress={onNeedBatteryHint} activeOpacity={0.6}>
+              <TouchableOpacity
+                style={styles.row}
+                onPress={() => onShowNotifyGuide('battery')}
+                activeOpacity={0.6}
+              >
                 <View style={styles.iconBox}>
                   <Ionicons
                     name="battery-half-outline"
@@ -235,8 +258,8 @@ function SettingsScreen({
             <Ionicons name="chevron-forward-outline" size={15} color={C.gray} />
           </TouchableOpacity>
 
-          {/* 渠道建不出来时系统会静默丢弃通知，这里如实标出来，别让人以为是"已经好了" */}
-          {!chan.ready ? (
+          {/* 渠道建不出来 / 被系统关掉时，系统会静默丢弃通知，这里如实标出来 */}
+          {!chan.ready || muted ? (
             <>
               <View style={styles.divider} />
               <View style={styles.row}>
@@ -244,7 +267,9 @@ function SettingsScreen({
                   <Ionicons name="warning-outline" size={16} color="#D9534F" />
                 </View>
                 <Text style={styles.label}>通知渠道</Text>
-                <Text style={[styles.value, { color: '#D9534F' }]}>建立失败</Text>
+                <Text style={[styles.value, { color: '#D9534F' }]}>
+                  {chan.ready ? '已关闭' : '建立失败'}
+                </Text>
               </View>
             </>
           ) : null}

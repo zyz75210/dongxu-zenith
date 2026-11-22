@@ -7,15 +7,15 @@ import { C } from './src/theme';
 import { initialSchedules, initialProfile, Profile, Schedule } from './src/data';
 import { loadPersistedData, savePersistedData } from './src/storage';
 import {
-  consumeFreshGrant, deviceBrand, isWithinLeadWindow, needsBatteryHint,
-  openAppSystemSettings, REMIND_MINUTES, requestPermissionIfNeeded, syncReminders,
+  checkNotifyHealth, consumeFreshGrant, deviceBrand, isWithinLeadWindow, needsBatteryHint,
+  openAppSystemSettings, REMIND_MINUTES, syncReminders,
 } from './src/notifications';
 import { parseDateKey, completedStreak } from './src/utils/date';
 import BottomNav, { TabKey } from './src/components/BottomNav';
 import DatePickerSheet from './src/components/DatePickerSheet';
 import TimePickerSheet from './src/components/TimePickerSheet';
 import SlideScreen from './src/components/SlideScreen';
-import BatteryHintSheet from './src/components/BatteryHintSheet';
+import NotifyGuideSheet, { type GuideKind } from './src/components/NotifyGuideSheet';
 import Toast from './src/components/Toast';
 import CalendarScreen from './src/screens/CalendarScreen';
 import AddScheduleScreen from './src/screens/AddScheduleScreen';
@@ -132,10 +132,11 @@ export default function App() {
   /** +1 就触发一次提醒重排（授权成功后用，见下面的 effect） */
   const [reminderTick, setReminderTick] = useState(0);
   /**
-   * 刚拿到通知权限时弹一次省电策略引导。
-   * 只在国产 ROM 上弹（那些系统会掐后台闹钟），其余机型不打扰。
+   * 通知引导面板：null = 不显示。
+   * - permission / channel：用户点「提醒与通知」时体检出来的真实卡点
+   * - battery：国产 ROM 刚授予权限时弹一次（系统会掐后台闹钟）
    */
-  const [batteryHint, setBatteryHint] = useState(false);
+  const [guide, setGuide] = useState<GuideKind | null>(null);
 
   /**
    * 全局轻提示：目前用于「日程距开始不足 15 分钟，提醒改到开始时」这一条，
@@ -154,8 +155,9 @@ export default function App() {
 
   const bumpReminders = useCallback(() => {
     setReminderTick((n) => n + 1);
-    // 权限刚授下来的那一刻顺手引导：用户此刻正在意"提醒能不能到"
-    if (needsBatteryHint() && consumeFreshGrant()) setBatteryHint(true);
+    // 权限刚授下来的那一刻顺手引导：用户此刻正在意"提醒能不能到"。
+    // 只对国产 ROM 弹（那些系统会掐后台闹钟），其余机型不打扰。
+    if (needsBatteryHint() && consumeFreshGrant()) setGuide('battery');
   }, []);
 
   // 启动读一次：读到才 setState；没读到（首次安装 / 数据损坏）保留初始值即可
@@ -204,6 +206,28 @@ export default function App() {
     const t = setTimeout(() => { void syncReminders(latest.current.schedules); }, 800);
     return () => clearTimeout(t);
   }, [schedules, ready, reminderTick]);
+
+  /**
+   * 回到前台时复查一次通知链路。
+   *
+   * 为什么需要：用户按引导去系统设置里把权限打开，回来时权限变了，
+   * 但日程一条都没改 —— 不补排的话，要等到下次新增/编辑日程才会开始提醒，
+   * 用户看到的现象就是「明明开了权限，还是不响」。
+   *
+   * 只在「上一轮卡着、这一轮通了」时补排一次，不是每次前台都重排。
+   */
+  const lastBlocker = useRef<'permission' | 'channel' | null | undefined>(undefined);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') return;
+      void checkNotifyHealth().then((health) => {
+        const prev = lastBlocker.current;
+        lastBlocker.current = health.blocker;
+        if (prev && !health.blocker) bumpReminders();
+      });
+    });
+    return () => sub.remove();
+  }, [bumpReminders]);
 
   // 切后台 / 卸载时立即落盘，保住防抖窗口里最后那次改动（杀 App 不发 onSnapshot）
   useEffect(() => {
@@ -348,10 +372,15 @@ export default function App() {
     if (isWithinLeadWindow({ ...draft, completed })) {
       showToast(`距开始不足 ${REMIND_MINUTES} 分钟，提醒改为开始时发送`);
     }
-    // 用户刚表达了「要提醒」，这一刻弹授权最容易被接受；拿到权限后 bump 一次重排
-    if (draft.remind) {
-      void requestPermissionIfNeeded().then((state) => {
-        if (state === 'granted') bumpReminders();
+    /**
+     * 用户刚表达了「要提醒」，这一刻弹授权最容易被接受。
+     * 但授权拿不到时不能一声不吭 —— 先体检：权限被关就弹 permission 引导，
+     * 渠道被关就弹 channel 引导，只有链路通畅才去排程。
+     */
+    if (draft.remind && !completed) {
+      void checkNotifyHealth({ request: true }).then((health) => {
+        if (health.blocker) setGuide(health.blocker);
+        else bumpReminders();
       });
     }
     // 编辑分支：只覆盖草稿里的字段，id 和 completed 原样保留（改个标题不该把打卡记录清掉）
@@ -627,7 +656,7 @@ export default function App() {
             scheduleCount={schedules.length}
             visible={page === 'settings'}
             onRemindersChanged={bumpReminders}
-            onNeedBatteryHint={() => setBatteryHint(true)}
+            onShowNotifyGuide={setGuide}
           />
         </SlideScreen>
 
@@ -711,15 +740,17 @@ export default function App() {
         }}
       />
 
-      <Toast message={toast} />
+      {/* 引导面板在前时先不弹轻提示：面板本身就带着更完整的说明，两个一起冒会互相盖住 */}
+      <Toast message={guide ? null : toast} />
 
-      {/* 省电策略引导：刚授完通知权限、且是国产 ROM 机型时弹一次 */}
-      <BatteryHintSheet
-        visible={batteryHint}
+      {/* 通知引导：权限 / 渠道 / 省电策略共用同一个面板，内容按 kind 切换 */}
+      <NotifyGuideSheet
+        visible={guide !== null}
+        kind={guide ?? 'permission'}
         brand={deviceBrand()}
-        onClose={() => setBatteryHint(false)}
+        onClose={() => setGuide(null)}
         onOpenSettings={() => {
-          setBatteryHint(false);
+          setGuide(null);
           openAppSystemSettings();
         }}
       />

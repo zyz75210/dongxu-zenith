@@ -5,31 +5,84 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { C } from '../theme';
 
-// 收起时向下偏移，略大于面板高度即可完全移出屏幕
-const HIDDEN_Y = 420;
+// 收起时向下偏移。三种文案里最长的是 permission（多一段路径说明），
+// 这里取一个明显大于面板高度的值，保证收起动画期间不会露出半截
+const HIDDEN_Y = 560;
+
+/** 引导要解决的那一步：前两个来自体检结果，battery 由国产 ROM 的授权时机触发 */
+export type GuideKind = 'permission' | 'channel' | 'battery';
 
 type Props = {
   visible: boolean;
-  /** 机型品牌，写进文案里（"小米/华为这类机型…"），命中率比泛泛而谈高 */
+  kind: GuideKind;
+  /** 机型品牌，只有 battery 那一条会写进文案（"小米/华为这类机型…"） */
   brand: string;
   onClose: () => void;
-  /** 跳到系统里本 App 的设置页（省电策略 / 自启动都在那儿） */
+  /** 跳到系统里本 App 的设置页（通知权限 / 渠道 / 省电策略都在那儿） */
   onOpenSettings: () => void;
 };
 
+type Copy = {
+  icon: 'notifications-off-outline' | 'volume-mute-outline' | 'battery-half-outline';
+  title: string;
+  /** 主段落：说清"发生了什么、为什么界面看不出来" */
+  lead: (brand: string) => string;
+  /** 次段落：说清"要做什么" */
+  action: string;
+  path: string;
+  hint?: string;
+};
+
 /**
- * 省电策略引导。
- *
- * 为什么需要它：安卓的本地提醒本质是系统闹钟。小米/华为/OPPO 这类系统的省电策略
- * 会把后台闹钟"合并"甚至直接掐掉 —— 表现是「刚发完测试通知马上就响了，
- * 锁屏半小时后到点的提醒却没响」。这不是权限问题，权限开着也一样，
- * 只能引导用户去系统里把省电策略改成「无限制」。
- *
- * 时机：刚授予通知权限的那一刻。用户刚刚表达"我要提醒"，此时解释最不唐突；
- * 而且权限只会授一次，所以这个面板天然只弹一次，不需要额外存"看过没"。
+ * 三种情况的文案。共同点：症状都是「一条通知都收不到」，
+ * 但原因分别在权限、渠道、系统省电策略三层 —— 给错出口等于没解决，
+ * 所以这里按体检结果分开写，不合并成一段通用说明。
  */
-export default function BatteryHintSheet({
-  visible, brand, onClose, onOpenSettings,
+const COPY: Record<GuideKind, Copy> = {
+  permission: {
+    icon: 'notifications-off-outline',
+    title: '通知权限被关闭了',
+    lead: () =>
+      '系统里本 App 的「允许通知」是关着的。这时日程到点不会有任何提示，'
+      + '提醒也排不进去 —— 设置页显示「已排程 0 条」就是这里的原因。',
+    action: '系统不会重复弹授权框，只能在这一页里手动打开。',
+    path: '设置 → 应用管理 → 本 App → 通知 → 允许通知',
+    hint: '在 Expo Go 里调试时选「Expo Go」；装上正式安装包后选「动序ZENITH」。',
+  },
+  channel: {
+    icon: 'volume-mute-outline',
+    title: '提醒渠道被关闭了',
+    lead: () =>
+      '权限是开着的，但「日程提醒」这个渠道被系统设成了关闭或静音。'
+      + '安卓 8 以后通知必须挂在渠道上，渠道被关掉时系统会直接丢弃 —— 不报错、不提示。',
+    action: '把这个渠道重新打开，重要性调回「高」，提醒才会弹出横幅并响铃。',
+    path: '设置 → 应用管理 → 本 App → 通知 → 日程提醒 → 允许 + 重要性「高」',
+    hint: '如果这一页里根本没有「日程提醒」这一项，说明渠道没建出来；'
+      + '先发一条测试通知，仍不弹就把设置页那行红色报错发给我。',
+  },
+  battery: {
+    icon: 'battery-half-outline',
+    title: '让提醒准时响',
+    lead: (brand) =>
+      `${brand ? `${brand} 这类` : '这台'}机型的省电策略会在锁屏后限制后台闹钟。`
+      + '日程提醒可能晚到，严重时整条不响 —— 这不是权限问题，权限开着也一样。',
+    action: '把本 App 的省电策略改成「无限制」，并允许「自启动」，提醒才有保障。',
+    path: '设置 → 应用管理 → 找到本 App → 省电策略 → 无限制',
+    hint: '现在是在 Expo Go 里调试，所以上面那一步要选「Expo Go」；装上正式安装包后选「动序ZENITH」。',
+  },
+};
+
+/**
+ * 通知引导面板。三种原因共用一套版式，只有文案与图标不同 ——
+ * 用户每次看到一个面板，不必分辨这是第几种弹窗。
+ *
+ * 时机由调用方决定（见 App.tsx / SettingsScreen）：
+ * - 点「提醒与通知」时体检出 blocker → 弹 permission / channel
+ * - 刚授予权限且是国产 ROM → 弹 battery
+ * - 设置页「省电策略」一行 → 弹 battery
+ */
+export default function NotifyGuideSheet({
+  visible, kind, brand, onClose, onOpenSettings,
 }: Props) {
   // 渲染期挂载，避免动画先起来、内容后建（和 PickerSheet 同样的理由）
   const [mounted, setMounted] = useState(visible);
@@ -70,6 +123,7 @@ export default function BatteryHintSheet({
 
   if (!mounted) return null;
 
+  const copy = COPY[kind];
   const backdrop = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
   const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [HIDDEN_Y, 0] });
 
@@ -84,26 +138,18 @@ export default function BatteryHintSheet({
 
         <View style={styles.titleRow}>
           <View style={styles.iconBox}>
-            <Ionicons name="battery-half-outline" size={18} color={C.primary} />
+            <Ionicons name={copy.icon} size={18} color={C.primary} />
           </View>
-          <Text style={styles.title}>让提醒准时响</Text>
+          <Text style={styles.title}>{copy.title}</Text>
         </View>
 
-        <Text style={styles.body}>
-          {brand ? `${brand} 这类` : '这台'}机型的省电策略会在锁屏后限制后台闹钟。
-          日程提醒可能晚到，严重时整条不响 —— 这不是权限问题，权限开着也一样。
-        </Text>
-
-        <Text style={styles.body}>
-          把本 App 的省电策略改成「无限制」，并允许「自启动」，提醒才有保障。
-        </Text>
+        <Text style={styles.body}>{copy.lead(brand)}</Text>
+        <Text style={styles.body}>{copy.action}</Text>
 
         <View style={styles.stepBox}>
           <Text style={styles.stepTitle}>操作路径</Text>
-          <Text style={styles.stepText}>设置 → 应用管理 → 找到本 App → 省电策略 → 无限制</Text>
-          <Text style={styles.stepHint}>
-            现在是在 Expo Go 里调试，所以上面那一步要选「Expo Go」；装上正式安装包后选「动序ZENITH」。
-          </Text>
+          <Text style={styles.stepText}>{copy.path}</Text>
+          {copy.hint ? <Text style={styles.stepHint}>{copy.hint}</Text> : null}
         </View>
 
         <TouchableOpacity

@@ -155,6 +155,77 @@ export async function requestPermissionIfNeeded(): Promise<PermissionState> {
 }
 
 /**
+ * 通知链路上「卡住」的那一步。
+ * - permission：系统里没给通知权限（含用户后来在系统设置里又关掉）
+ * - channel：权限开着，但安卓提醒渠道被关掉 / 压根建不出来
+ */
+export type NotifyBlocker = 'permission' | 'channel';
+
+export type NotifyHealth = {
+  permission: PermissionState;
+  channel: ChannelStatus;
+  /** 渠道在系统里被用户关掉（importance = NONE）：系统会静默丢弃，不报错 */
+  channelMuted: boolean;
+  /** 最该先解决的那一步；null = 链路通畅 */
+  blocker: NotifyBlocker | null;
+};
+
+/**
+ * 纯函数：三个事实 → 卡在哪一步。抽出来单独测，不依赖任何原生接口。
+ * 顺序有意义：没权限时谈渠道没意义，所以 permission 优先。
+ */
+export function pickBlocker(f: {
+  permission: PermissionState;
+  channelReady: boolean;
+  channelMuted: boolean;
+}): NotifyBlocker | null {
+  if (f.permission !== 'granted') return 'permission';
+  if (!f.channelReady || f.channelMuted) return 'channel';
+  return null;
+}
+
+/**
+ * 读一次安卓渠道的真实状态。
+ * 「建不出来」（ready=false）和「被用户关掉」（muted）是两件事，出口也不同，不能混。
+ */
+async function readChannel(): Promise<{ ready: boolean; muted: boolean }> {
+  if (Platform.OS !== 'android') return { ready: true, muted: false };
+  const ready = await ensureChannel();
+  try {
+    const ch = await Notifications.getNotificationChannelAsync(CHANNEL_ID);
+    // 渠道还不存在（null）不算 muted：ensureChannel 成功的话下一步就建出来了
+    const muted = ch?.importance === Notifications.AndroidImportance.NONE;
+    return { ready, muted };
+  } catch {
+    return { ready, muted: false };
+  }
+}
+
+/**
+ * 通知可用性体检：权限 + 渠道，一次说清「现在到底能不能收到提醒」。
+ *
+ * request=true 时允许弹系统授权框 —— 只在用户主动点「提醒与通知」时传；
+ * 只查不弹时用它做设置页展示，不会打扰用户。
+ *
+ * 为什么需要它：权限「已开启」不等于能收到。安卓 8+ 通知必须挂在渠道上，
+ * 用户在系统里把某个渠道关成 NONE 之后，系统会静默丢弃，界面却还显示正常。
+ */
+export async function checkNotifyHealth(
+  opts: { request?: boolean } = {},
+): Promise<NotifyHealth> {
+  const permission = opts.request
+    ? await requestPermissionIfNeeded()
+    : await getPermissionState();
+  const { ready, muted } = await readChannel();
+  return {
+    permission,
+    channel: getChannelStatus(),
+    channelMuted: muted,
+    blocker: pickBlocker({ permission, channelReady: ready, channelMuted: muted }),
+  };
+}
+
+/**
  * 一条日程该在什么时刻提醒，以及这条提醒属于哪一类。
  *
  * 两类：
