@@ -7,11 +7,14 @@ import { C } from '../theme';
 import { APP_VERSION_LABEL } from '../version';
 import {
   countScheduled,
+  ensureChannel,
+  getChannelStatus,
   getPermissionState,
   openSystemNotificationSettings,
   requestPermissionIfNeeded,
   sendTestNotification,
   REMIND_MINUTES,
+  type ChannelStatus,
   type PermissionState,
 } from '../notifications';
 
@@ -46,6 +49,11 @@ function SettingsScreen({
   const [pending, setPending] = useState(0);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  /**
+   * 安卓渠道是否真的建起来了。建不出来时排程会退化成"不带 channelId"，
+   * 通知大概率不显示 —— 这件事必须让用户看见，不能只显示权限"已开启"。
+   */
+  const [chan, setChan] = useState<ChannelStatus>({ ready: true, degraded: false, error: null });
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const say = useCallback((text: string) => {
@@ -58,6 +66,9 @@ function SettingsScreen({
     const p = await getPermissionState();
     setPerm(p);
     setPending(await countScheduled());
+    // 顺便重试一次建渠道：用户可能刚在系统里放开权限，渠道之前才建失败过
+    await ensureChannel();
+    setChan(getChannelStatus());
   }, []);
 
   // 每次打开设置页都重新查一遍（权限可能在系统设置里被改过）
@@ -192,7 +203,25 @@ function SettingsScreen({
             <Text style={styles.value}>{busy ? '发送中…' : '5 秒后'}</Text>
             <Ionicons name="chevron-forward-outline" size={15} color={C.gray} />
           </TouchableOpacity>
+
+          {/* 渠道建不出来时系统会静默丢弃通知，这里如实标出来，别让人以为是"已经好了" */}
+          {!chan.ready ? (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.row}>
+                <View style={styles.iconBox}>
+                  <Ionicons name="warning-outline" size={16} color="#D9534F" />
+                </View>
+                <Text style={styles.label}>通知渠道</Text>
+                <Text style={[styles.value, { color: '#D9534F' }]}>建立失败</Text>
+              </View>
+            </>
+          ) : null}
         </View>
+
+        {!chan.ready && chan.error ? (
+          <Text style={styles.warn}>渠道报错：{chan.error.slice(0, 160)}</Text>
+        ) : null}
 
         {note ? <Text style={styles.note}>{note}</Text> : null}
 
@@ -242,6 +271,10 @@ const styles = StyleSheet.create({
 
   note: {
     fontSize: 11, color: C.primary, lineHeight: 17,
+    marginTop: 10, paddingHorizontal: 2,
+  },
+  warn: {
+    fontSize: 11, color: '#D9534F', lineHeight: 17,
     marginTop: 10, paddingHorizontal: 2,
   },
   hint: {
