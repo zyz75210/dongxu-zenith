@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AppState, ScrollView, StyleSheet, Text, TouchableOpacity, View,
+  AppState, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { C } from '../theme';
@@ -10,7 +10,8 @@ import {
   ensureChannel,
   getChannelStatus,
   getPermissionState,
-  openSystemNotificationSettings,
+  needsBatteryHint,
+  openAppSystemSettings,
   requestPermissionIfNeeded,
   sendTestNotification,
   REMIND_MINUTES,
@@ -27,6 +28,8 @@ type Props = {
   visible?: boolean;
   /** 刚拿到通知权限：让上层重排一次提醒 */
   onRemindersChanged: () => void;
+  /** 打开省电策略引导（弹窗放在 App 根部，与授权后自动弹的是同一个） */
+  onNeedBatteryHint: () => void;
 };
 
 /** 权限状态 -> 右侧文案 */
@@ -42,7 +45,7 @@ const permText: Record<PermissionState | 'checking', string> = {
  * 版式沿用"我的"页的分组卡片，后续要加新设置项直接往 card 里加 row 即可。
  */
 function SettingsScreen({
-  onBack, onOpenHistory, scheduleCount, visible = true, onRemindersChanged,
+  onBack, onOpenHistory, scheduleCount, visible = true, onRemindersChanged, onNeedBatteryHint,
 }: Props) {
   const [perm, setPerm] = useState<PermissionState | 'checking'>('checking');
   /** 系统里已排程的提醒条数：这是"真的排上了"的证据，不是 UI 假状态 */
@@ -54,6 +57,13 @@ function SettingsScreen({
    * 通知大概率不显示 —— 这件事必须让用户看见，不能只显示权限"已开启"。
    */
   const [chan, setChan] = useState<ChannelStatus>({ ready: true, degraded: false, error: null });
+
+  /**
+   * 省电策略这一行：安卓一律显示（出口总是有用的），
+   * 只有国产 ROM 才标成需要处理的琥珀色 —— 那些系统真的会掐后台闹钟。
+   */
+  const isAndroid = Platform.OS === 'android';
+  const strictRom = needsBatteryHint();
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const say = useCallback((text: string) => {
@@ -168,7 +178,7 @@ function SettingsScreen({
         <View style={styles.card}>
           <TouchableOpacity
             style={styles.row}
-            onPress={denied ? openSystemNotificationSettings : enable}
+            onPress={denied ? openAppSystemSettings : enable}
             activeOpacity={0.6}
             disabled={busy}
           >
@@ -181,6 +191,27 @@ function SettingsScreen({
             </Text>
             <Ionicons name="chevron-forward-outline" size={15} color={C.gray} />
           </TouchableOpacity>
+
+          {/* 国产 ROM 专属：权限开着也可能被省电策略掐掉后台闹钟，给一个常驻入口 */}
+          {isAndroid ? (
+            <>
+              <View style={styles.divider} />
+              <TouchableOpacity style={styles.row} onPress={onNeedBatteryHint} activeOpacity={0.6}>
+                <View style={styles.iconBox}>
+                  <Ionicons
+                    name="battery-half-outline"
+                    size={16}
+                    color={strictRom ? '#E08A3C' : C.primary}
+                  />
+                </View>
+                <Text style={styles.label}>省电策略</Text>
+                <Text style={[styles.value, strictRom && { color: '#E08A3C' }]}>
+                  {strictRom ? '建议设为无限制' : '系统设置'}
+                </Text>
+                <Ionicons name="chevron-forward-outline" size={15} color={C.gray} />
+              </TouchableOpacity>
+            </>
+          ) : null}
 
           <View style={styles.divider} />
 

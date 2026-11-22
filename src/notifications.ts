@@ -145,6 +145,9 @@ export async function requestPermissionIfNeeded(): Promise<PermissionState> {
     const res = await Notifications.requestPermissionsAsync({
       ios: { allowAlert: true, allowSound: true, allowBadge: false },
     });
+    // 只有「从未决变已授」这一瞬间才置位：权限不会重复授予，
+    // 所以引导只需要弹一次，不必再往 storage 里存一个"看过没"的字段
+    if (res.granted) freshGrant = true;
     return res.granted ? 'granted' : 'denied';
   } catch {
     return 'denied';
@@ -273,7 +276,40 @@ export async function sendTestNotification(seconds = 5): Promise<PermissionState
   return 'granted';
 }
 
-/** 被系统拒绝后只能去系统设置里打开 */
-export function openSystemNotificationSettings(): void {
+/** 打开本 App 的系统设置页：通知权限、省电策略、自启动都在这一页里 */
+export function openAppSystemSettings(): void {
   void Linking.openSettings();
+}
+
+/**
+ * 后台限制较狠的品牌。这些系统的省电策略会把 App 的闹钟推迟甚至掐掉，
+ * 表现就是「测试通知立刻能收到，锁屏久了到点却不响」。
+ * 品牌名从 Platform.constants 读，不需要额外装原生库。
+ */
+const STRICT_BRANDS = /xiaomi|redmi|poco|huawei|honor|oppo|vivo|iqoo|oneplus|realme|meizu|samsung/i;
+
+/** 当前机型品牌（安卓才有意义，取不到时返回空串） */
+export function deviceBrand(): string {
+  if (Platform.OS !== 'android') return '';
+  const c = (Platform as unknown as { constants?: Record<string, unknown> }).constants ?? {};
+  return String(c.Brand ?? c.Manufacturer ?? '');
+}
+
+/** 是否属于「需要引导用户去把省电策略改成无限制」的机型 */
+export function needsBatteryHint(): boolean {
+  return Platform.OS === 'android' && STRICT_BRANDS.test(deviceBrand());
+}
+
+/**
+ * 是否「刚刚」拿到了通知权限。
+ * 用它来决定要不要弹省电策略引导：权限只会有一次从未决变已授，
+ * 天然就是一次性的，不用往 storage 里加"已提示过"的字段。
+ */
+let freshGrant = false;
+
+/** 读一次就清零，避免来回切页面时反复弹 */
+export function consumeFreshGrant(): boolean {
+  const value = freshGrant;
+  freshGrant = false;
+  return value;
 }

@@ -6,12 +6,16 @@ import {
 import { C } from './src/theme';
 import { initialSchedules, initialProfile, Profile, Schedule } from './src/data';
 import { loadPersistedData, savePersistedData } from './src/storage';
-import { requestPermissionIfNeeded, syncReminders } from './src/notifications';
+import {
+  consumeFreshGrant, deviceBrand, needsBatteryHint, openAppSystemSettings,
+  requestPermissionIfNeeded, syncReminders,
+} from './src/notifications';
 import { parseDateKey, completedStreak } from './src/utils/date';
 import BottomNav, { TabKey } from './src/components/BottomNav';
 import DatePickerSheet from './src/components/DatePickerSheet';
 import TimePickerSheet from './src/components/TimePickerSheet';
 import SlideScreen from './src/components/SlideScreen';
+import BatteryHintSheet from './src/components/BatteryHintSheet';
 import CalendarScreen from './src/screens/CalendarScreen';
 import AddScheduleScreen from './src/screens/AddScheduleScreen';
 import DetailScreen from './src/screens/DetailScreen';
@@ -135,7 +139,17 @@ export default function App() {
 
   /** +1 就触发一次提醒重排（授权成功后用，见下面的 effect） */
   const [reminderTick, setReminderTick] = useState(0);
-  const bumpReminders = useCallback(() => setReminderTick((n) => n + 1), []);
+  /**
+   * 刚拿到通知权限时弹一次省电策略引导。
+   * 只在国产 ROM 上弹（那些系统会掐后台闹钟），其余机型不打扰。
+   */
+  const [batteryHint, setBatteryHint] = useState(false);
+
+  const bumpReminders = useCallback(() => {
+    setReminderTick((n) => n + 1);
+    // 权限刚授下来的那一刻顺手引导：用户此刻正在意"提醒能不能到"
+    if (needsBatteryHint() && consumeFreshGrant()) setBatteryHint(true);
+  }, []);
 
   // 启动读一次：读到才 setState；没读到（首次安装 / 数据损坏）保留初始值即可
   useEffect(() => {
@@ -595,6 +609,7 @@ export default function App() {
             scheduleCount={schedules.length}
             visible={page === 'settings'}
             onRemindersChanged={bumpReminders}
+            onNeedBatteryHint={() => setBatteryHint(true)}
           />
         </SlideScreen>
 
@@ -675,6 +690,17 @@ export default function App() {
           timeCallback.current?.(h, m);
           timeCallback.current = null;
           closeTimePicker();
+        }}
+      />
+
+      {/* 省电策略引导：刚授完通知权限、且是国产 ROM 机型时弹一次 */}
+      <BatteryHintSheet
+        visible={batteryHint}
+        brand={deviceBrand()}
+        onClose={() => setBatteryHint(false)}
+        onOpenSettings={() => {
+          setBatteryHint(false);
+          openAppSystemSettings();
         }}
       />
     </View>
