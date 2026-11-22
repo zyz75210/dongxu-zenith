@@ -32,8 +32,14 @@ import HistoryScreen from './src/screens/HistoryScreen';
 import ReportScreen from './src/screens/ReportScreen';
 import FeatureScreen from './src/screens/FeatureScreen';
 import TrainingScreen from './src/screens/TrainingScreen';
+import ContentScreen from './src/screens/ContentScreen';
+import GrowthScreen from './src/screens/GrowthScreen';
+import GradeMapScreen from './src/screens/GradeMapScreen';
+import {
+  loadGradeProgress, saveGradeProgress, stageStats,
+} from './src/content/gradeProgress';
 
-// 三个尚未开发的功能页配置（训练页已经是真实页面，不再走这个占位模板）
+// 尚未开发的功能页配置（训练 / 内容 / 积累都已经是真实页面，只剩「星球」还走这个占位模板）
 const featureConfig: Record<string, {
   title: string; en: string; desc: string; icon: string;
   features: { icon: string; text: string }[];
@@ -48,31 +54,12 @@ const featureConfig: Record<string, {
       { icon: 'person-outline', text: '关注感兴趣的时间管理创作者' },
     ],
   },
-  content: {
-    title: '内容', en: 'CONTENT',
-    desc: '沉淀你的笔记与资料，与日程自然关联。',
-    icon: 'document-text-outline',
-    features: [
-      { icon: 'checkmark-circle-outline', text: '日程备注一键转为笔记' },
-      { icon: 'sparkles-outline', text: '会议纪要与待办清单整理' },
-      { icon: 'folder-outline', text: '按主题检索历史记录' },
-    ],
-  },
-  growth: {
-    title: '积累', en: 'GROWTH',
-    desc: '长期记录的时间资产，会慢慢长成你的能力。',
-    icon: 'layers-outline',
-    features: [
-      { icon: 'checkmark-circle-outline', text: '时间投入分布与趋势图' },
-      { icon: 'sparkles-outline', text: '月度成长报告自动生成' },
-      { icon: 'calendar-outline', text: '关键里程碑时间线回顾' },
-    ],
-  },
 };
 
-// 页面类型：主界面 / 添加 / 详情 / 我的 / 资料编辑 / 设置 / 历史日程
+// 页面类型：主界面 / 添加 / 详情 / 我的 / 资料编辑 / 设置 / 历史日程 / 段位地图
 type Page =
-  | 'main' | 'add' | 'detail' | 'profile' | 'profileEdit' | 'report' | 'settings' | 'history';
+  | 'main' | 'add' | 'detail' | 'profile' | 'profileEdit' | 'report' | 'settings'
+  | 'history' | 'grades';
 
 // 四个功能页的顺序（切 tab 时按需挂载、挂载后常驻）
 const FEATURE_TABS: TabKey[] = ['train', 'planet', 'content', 'growth'];
@@ -104,6 +91,15 @@ export default function App() {
 
   // 个人资料：头像 / 名字 / 生日，"我的"页与编辑页共用
   const [profile, setProfile] = useState<Profile>(initialProfile);
+
+  /**
+   * 段位进度：只存「已掌握动作」的 key（`段位-动作`）。
+   * 单独一份 AsyncStorage，不走 storage.ts 的日程 schema ——
+   * 那份一改 schemaVersion 就要写迁移，迁移写错会把用户的日程一起丢掉。
+   */
+  const [gradeDone, setGradeDone] = useState<string[]>([]);
+  const gradeLoaded = useRef(false);
+  const gradeTouched = useRef(false);
 
   /**
    * 本地持久化：启动时从 AsyncStorage 读回，之后 schedules/profile 一变就防抖写回。
@@ -200,6 +196,25 @@ export default function App() {
   }, [schedules, profile]);
 
   /**
+   * 段位进度：独立读写，和上面日程的 hydration 完全解耦。
+   * 读取期间用户若已经点过动作（首屏几乎不可能），以内存为准，别被落盘数据盖回去。
+   */
+  useEffect(() => {
+    let alive = true;
+    void loadGradeProgress().then((keys) => {
+      if (!alive) return;
+      if (!gradeTouched.current) setGradeDone(keys);
+      gradeLoaded.current = true;
+    });
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!gradeLoaded.current) return;
+    void saveGradeProgress(gradeDone);
+  }, [gradeDone]);
+
+  /**
    * 提醒排程：日程一变就把待发提醒全量重排一遍。
    * 防抖 800ms 比落盘稍长，连续操作时只排最后一次；
    * 没给权限时 syncReminders 内部直接返回 0，不会弹窗——授权只发生在用户主动操作之后。
@@ -271,6 +286,10 @@ export default function App() {
     };
   }, [schedules]);
 
+  /** 段位派生：Set 给地图做 O(1) 掌握判断，统计给首页卡显示「已获 X 段」 */
+  const gradeDoneSet = useMemo(() => new Set(gradeDone), [gradeDone]);
+  const gradeStat = useMemo(() => stageStats(gradeDoneSet), [gradeDoneSet]);
+
   /**
    * 详情页退场时条目可能已经被删掉（selected 变成 null），
    * 这里留一份最后一次的引用，让退场动画里还能看到原来的内容，不会白屏。
@@ -324,6 +343,8 @@ export default function App() {
       if (p === 'add') return editingId ? 'detail' : 'main';
       // 设置页可能从日历首页的齿轮进，也可能从"我的"进，各回各家
       if (p === 'settings') return settingsFrom.current;
+      // 段位地图只从「内容」页进，返回就是主界面（内容 tab 还在原位）
+      if (p === 'grades') return 'main';
       return 'main';
     });
     setEditingId(null);
@@ -542,6 +563,13 @@ export default function App() {
 
   const openProfileEdit = useCallback(() => setPage('profileEdit'), []);
   const openReport = useCallback(() => setPage('report'), []);
+  /** 内容库 → 段位地图（内容 tab 上的大卡点进来） */
+  const openGrades = useCallback(() => setPage('grades'), []);
+  /** 段位地图里标记 / 取消「已掌握」。通关要整段掌握，但只要上一段过半，下一段就能挑战 */
+  const toggleGradeAction = useCallback((key: string) => {
+    gradeTouched.current = true;
+    setGradeDone((list) => (list.includes(key) ? list.filter((k) => k !== key) : [...list, key]));
+  }, []);
   /** 云同步还没接后端：如实说明当前数据在哪，别让用户以为已经在同步 */
   const openCloud = useCallback(() => {
     showToast('云同步还在开发中，数据已保存在本机');
@@ -602,6 +630,16 @@ export default function App() {
             {k === 'train' ? (
               // 训练页整屏固定，不滚动：一进来就是训练面板本身
               <TrainingScreen onEditDuration={openDurationPicker} />
+            ) : k === 'content' ? (
+              // 内容库：段位大卡 → 段位地图，底部留白给后续板块
+              <ContentScreen
+                stats={gradeStat}
+                onOpenMap={openGrades}
+                onSoon={pressSoon}
+              />
+            ) : k === 'growth' ? (
+              // 积累页：置顶运动卡 + 等高组件网格。这一版入口全部未接，只给提示
+              <GrowthScreen onSoon={pressSoon} />
             ) : (
               <FeatureScreen
                 title={featureConfig[k].title}
@@ -710,6 +748,19 @@ export default function App() {
             <ReportScreen
               schedules={schedules}
               visible={page === 'report'}
+              onBack={goBack}
+            />
+          </SlideScreen>
+
+          {/* 段位地图：从「内容」页的大卡进，九段动作清单与掌握状态都在这 */}
+          <SlideScreen
+            visible={page === 'grades'}
+            topInset={topInset}
+            bottomInset={bottomInset}
+          >
+            <GradeMapScreen
+              done={gradeDoneSet}
+              onToggle={toggleGradeAction}
               onBack={goBack}
             />
           </SlideScreen>
