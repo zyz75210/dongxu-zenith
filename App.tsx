@@ -11,7 +11,7 @@ import {
   checkNotifyHealth, consumeFreshGrant, deviceBrand, isWithinLeadWindow, needsBatteryHint,
   openAppSystemSettings, REMIND_MINUTES, syncReminders,
 } from './src/notifications';
-import { parseDateKey, completedStreak } from './src/utils/date';
+import { parseDateKey, dateKeyOf, completedStreak } from './src/utils/date';
 import BottomNav, { TabKey } from './src/components/BottomNav';
 import DatePickerSheet from './src/components/DatePickerSheet';
 import TimePickerSheet from './src/components/TimePickerSheet';
@@ -28,6 +28,7 @@ import ProfileScreen from './src/screens/ProfileScreen';
 import ProfileEditScreen from './src/screens/ProfileEditScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
+import ReportScreen from './src/screens/ReportScreen';
 import FeatureScreen from './src/screens/FeatureScreen';
 import TrainingScreen from './src/screens/TrainingScreen';
 
@@ -70,7 +71,7 @@ const featureConfig: Record<string, {
 
 // 页面类型：主界面 / 添加 / 详情 / 我的 / 资料编辑 / 设置 / 历史日程
 type Page =
-  | 'main' | 'add' | 'detail' | 'profile' | 'profileEdit' | 'settings' | 'history';
+  | 'main' | 'add' | 'detail' | 'profile' | 'profileEdit' | 'report' | 'settings' | 'history';
 
 // 四个功能页的顺序（切 tab 时按需挂载、挂载后常驻）
 const FEATURE_TABS: TabKey[] = ['train', 'planet', 'content', 'growth'];
@@ -254,10 +255,18 @@ export default function App() {
    */
   const profileStats = useMemo(() => {
     const done = schedules.filter((s) => s.completed);
+    /**
+     * 本月摘要：卡片上先给一句结论（本月完成率），点进报告页才看细节。
+     * 用 dateKeyOf 截前 7 位做月份前缀，和日程存的 "YYYY-MM-DD" 口径一致。
+     */
+    const monthPrefix = dateKeyOf(new Date()).slice(0, 7);
+    const month = schedules.filter((s) => s.date.startsWith(monthPrefix));
     return {
       total: schedules.length,
       done: done.length,
       streak: completedStreak(done.map((s) => s.date)),
+      monthTotal: month.length,
+      monthDone: month.filter((s) => s.completed).length,
     };
   }, [schedules]);
 
@@ -277,6 +286,11 @@ export default function App() {
   const detailFrom = useRef<Page>('main');
   /** 历史日程是从哪进来的：设置页，还是主页「全部」 */
   const historyFrom = useRef<Page>('settings');
+  /**
+   * 设置页是从哪进来的：日历首页的齿轮，还是「我的」右上角的齿轮。
+   * 两个入口都要能返回原处，否则从「我的」进设置、返回却被送到主界面。
+   */
+  const settingsFrom = useRef<Page>('main');
 
   /**
    * 二级页面是否盖在主界面上：只用来决定主界面吃不吃触摸，不做视觉。
@@ -302,11 +316,13 @@ export default function App() {
   const goBack = useCallback(() => {
     Keyboard.dismiss();
     setPage((p) => {
-      if (p === 'profileEdit') return 'profile';
+      if (p === 'profileEdit' || p === 'report') return 'profile';
       if (p === 'history') return historyFrom.current;
       if (p === 'detail') return detailFrom.current;
       // 添加页：编辑态退回详情，新建态回主界面（和右上角关闭走同一条路）
       if (p === 'add') return editingId ? 'detail' : 'main';
+      // 设置页可能从日历首页的齿轮进，也可能从"我的"进，各回各家
+      if (p === 'settings') return settingsFrom.current;
       return 'main';
     });
     setEditingId(null);
@@ -464,6 +480,11 @@ export default function App() {
     setPage(detailFrom.current);
   }, []);
   const openSettings = useCallback(() => {
+    settingsFrom.current = 'main';
+    setPage('settings');
+  }, []);
+  const openSettingsFromProfile = useCallback(() => {
+    settingsFrom.current = 'profile';
     setPage('settings');
   }, []);
   // 设置页里进历史：返回时回到设置
@@ -498,6 +519,15 @@ export default function App() {
   }, [editingId]);
 
   const openProfileEdit = useCallback(() => setPage('profileEdit'), []);
+  const openReport = useCallback(() => setPage('report'), []);
+  /** 云同步还没接后端：如实说明当前数据在哪，别让用户以为已经在同步 */
+  const openCloud = useCallback(() => {
+    showToast('云同步还在开发中，数据已保存在本机');
+  }, [showToast]);
+  /** 还没做的入口：统一点一下给句话，避免"点了没反应" */
+  const pressSoon = useCallback((label: string) => {
+    showToast(`${label}还在开发中`);
+  }, [showToast]);
   const backToProfile = useCallback(() => {
     Keyboard.dismiss();
     setPage('profile');
@@ -608,13 +638,29 @@ export default function App() {
           放在里面会被它的内边距框住：状态栏那一条（topInset 高）拿不到过渡，
           转场时顶部会留一条"没跟上"的硬边。放在整屏层就一定是盖满的。
         */}
-          {/* 我的：进资料编辑时保持可见，编辑页盖在它上面（这里只换谁在上层，没有位移） */}
+          {/*
+            我的：进资料编辑 / 数据报告时保持可见，子页面盖在它上面。
+            不保持的话，从"我的"进报告页会让底层先退回主界面，
+            返回时还要重新挂一次"我的"，转场里能看出背景换过一茬。
+          */}
           <SlideScreen
-            visible={page === 'profile' || page === 'profileEdit'}
+            visible={
+              page === 'profile' || page === 'profileEdit' || page === 'report'
+              // 从"我的"进设置时也留着：返回时这一页还在原位，不用重新挂载、淡入
+              || (page === 'settings' && settingsFrom.current === 'profile')
+            }
             topInset={topInset}
             bottomInset={bottomInset}
           >
-            <ProfileScreen profile={profile} onEditProfile={openProfileEdit} stats={profileStats} />
+            <ProfileScreen
+              profile={profile}
+              onEditProfile={openProfileEdit}
+              stats={profileStats}
+              onOpenReport={openReport}
+              onOpenCloud={openCloud}
+              onPressSoon={pressSoon}
+              onOpenSettings={openSettingsFromProfile}
+            />
             <BottomNav active={tab} onChange={tabFromProfile} />
           </SlideScreen>
 
@@ -629,6 +675,19 @@ export default function App() {
               onClose={backToProfile}
               onSave={saveProfile}
               onOpenDate={openPicker}
+            />
+          </SlideScreen>
+
+          {/* 数据报告：从"我的"进，整屏看当月完成率与类型分布 */}
+          <SlideScreen
+            visible={page === 'report'}
+            topInset={topInset}
+            bottomInset={bottomInset}
+          >
+            <ReportScreen
+              schedules={schedules}
+              visible={page === 'report'}
+              onBack={goBack}
             />
           </SlideScreen>
 

@@ -10,7 +10,15 @@ type Props = {
   /** 点「个人资料」进编辑页 */
   onEditProfile: () => void;
   /** 真实统计：已添加 / 已完成 / 连续天数，由 App 按日程算好传进来 */
-  stats: { total: number; done: number; streak: number };
+  stats: { total: number; done: number; streak: number; monthTotal: number; monthDone: number };
+  /** 进数据报告页 */
+  onOpenReport: () => void;
+  /** 右上角齿轮：和日历首页那颗同一个去处（设置页） */
+  onOpenSettings: () => void;
+  /** 云同步：本地已存，云端还没接 */
+  onOpenCloud: () => void;
+  /** 还没做的入口：只弹一句提示，别让点了没反应 */
+  onPressSoon: (label: string) => void;
 };
 
 type Group = {
@@ -28,12 +36,14 @@ const account: Group = {
     { icon: 'color-palette-outline', label: '外观主题', value: '清爽白' },
   ],
 };
+/**
+ * 数据报告 / 云同步 已经上提到了顶部那张卡，这里不再重复列 ——
+ * 同一件事出现两个入口，用户会怀疑哪个才是"真的"。
+ */
 const more: Group = {
   title: '更多功能',
   more: '即将开放',
   items: [
-    { icon: 'stats-chart-outline', label: '数据报告' },
-    { icon: 'cloud-upload-outline', label: '云同步与备份' },
     { icon: 'lock-closed-outline', label: '隐私与安全' },
     { icon: 'help-circle-outline', label: '帮助与反馈' },
   ],
@@ -76,16 +86,36 @@ function Section({
   );
 }
 
-function ProfileScreen({ profile, onEditProfile, stats }: Props) {
+function ProfileScreen({
+  profile, onEditProfile, stats, onOpenReport, onOpenCloud, onPressSoon, onOpenSettings,
+}: Props) {
   const birthdayText =
     `${profile.birthday.y}年${profile.birthday.m + 1}月${profile.birthday.d}日`;
+
+  // 报告卡上的一行摘要：直接把"这个月怎么样"摆出来，不用点进去才知道
+  const monthPct = stats.monthTotal
+    ? Math.round((stats.monthDone / stats.monthTotal) * 100)
+    : null;
+  const reportSub = monthPct === null ? '本月暂无记录' : `本月完成率 ${monthPct}%`;
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>我的</Text>
-        <TouchableOpacity style={styles.circle} activeOpacity={0.7}>
-          <Ionicons name="settings-outline" size={18} color={C.text} />
+        {/*
+          触摸区做到 44×44（系统建议的最小可点尺寸），但用负外边距把它"收"回来，
+          视觉上那个 34×34 的圆一动不动。
+          之前是 34 的圆 + hitSlop：hitSlop 超到父容器外面的部分在安卓上会被裁掉，
+          指尖稍微偏一点就落空，手感就是"点了没反应"。
+        */}
+        <TouchableOpacity
+          style={styles.gearHit}
+          onPress={onOpenSettings}
+          activeOpacity={0.6}
+        >
+          <View style={styles.circle}>
+            <Ionicons name="settings-outline" size={18} color={C.text} />
+          </View>
         </TouchableOpacity>
       </View>
 
@@ -117,21 +147,44 @@ function ProfileScreen({ profile, onEditProfile, stats }: Props) {
         <Ionicons name="chevron-forward-outline" size={16} color={C.gray} />
       </TouchableOpacity>
 
-      {/* 统计：全部来自真实日程，不再是写死的示例数字 */}
-      <View style={styles.stats}>
-        <View style={styles.stat}>
-          <Text style={styles.statNum}>{stats.total}</Text>
-          <Text style={styles.statLabel}>已添加</Text>
+      {/*
+        统计 + 两个入口做成一块：上半是三个数字，下半左"数据报告"、右"云同步"。
+        分成三块并列会显得散，合成一张卡才有"这是我的总览"的感觉。
+      */}
+      <View style={styles.hero}>
+        <View style={styles.heroStats}>
+          <View style={styles.stat}>
+            <Text style={styles.statNum}>{stats.total}</Text>
+            <Text style={styles.statLabel}>已添加</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.stat}>
+            <Text style={styles.statNum}>{stats.done}</Text>
+            <Text style={styles.statLabel}>已完成</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.stat}>
+            <Text style={styles.statNum}>{stats.streak}</Text>
+            <Text style={styles.statLabel}>连续天数</Text>
+          </View>
         </View>
-        <View style={styles.statDivider} />
-        <View style={styles.stat}>
-          <Text style={styles.statNum}>{stats.done}</Text>
-          <Text style={styles.statLabel}>已完成</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.stat}>
-          <Text style={styles.statNum}>{stats.streak}</Text>
-          <Text style={styles.statLabel}>连续天数</Text>
+
+        <View style={styles.heroActions}>
+          <TouchableOpacity style={styles.actionCard} onPress={onOpenReport} activeOpacity={0.75}>
+            <View style={styles.actionIcon}>
+              <Ionicons name="stats-chart-outline" size={16} color={C.primary} />
+            </View>
+            <Text style={styles.actionTitle}>数据报告</Text>
+            <Text style={styles.actionSub} numberOfLines={1}>{reportSub}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.actionCard} onPress={onOpenCloud} activeOpacity={0.75}>
+            <View style={[styles.actionIcon, styles.actionIconMuted]}>
+              <Ionicons name="cloud-upload-outline" size={16} color={C.gray} />
+            </View>
+            <Text style={styles.actionTitle}>云同步</Text>
+            <Text style={styles.actionSub} numberOfLines={1}>尚未开启</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -139,9 +192,12 @@ function ProfileScreen({ profile, onEditProfile, stats }: Props) {
         group={account}
         onPressItem={(label) => {
           if (label === '个人资料') onEditProfile();
+          // 这一行右边本来就写着"在设置中管理"，直接送过去比弹一句"还在开发中"诚实
+          else if (label === '提醒与通知') onOpenSettings();
+          else onPressSoon(label);
         }}
       />
-      <Section group={more} />
+      <Section group={more} onPressItem={onPressSoon} />
       <Text style={styles.version}>{APP_VERSION_LABEL}</Text>
     </ScrollView>
   );
@@ -153,6 +209,12 @@ const styles = StyleSheet.create({
 
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 },
   headerTitle: { fontSize: 20, fontWeight: '600', color: C.text },
+  // 44×44 的真实触摸区，负外边距把多出来的 10px 收回去，圆的位置不变
+  gearHit: {
+    width: 44, height: 44,
+    alignItems: 'center', justifyContent: 'center',
+    marginTop: -5, marginBottom: -5, marginRight: -5, marginLeft: -5,
+  },
   circle: {
     width: 34, height: 34, borderRadius: 17,
     backgroundColor: C.soft, alignItems: 'center', justifyContent: 'center',
@@ -169,14 +231,30 @@ const styles = StyleSheet.create({
   emailRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   email: { fontSize: 10, color: C.gray, flexShrink: 1 },
 
-  stats: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: C.soft, borderRadius: 14, paddingVertical: 18, marginBottom: 24,
+  // 总览卡：上半三个数字、下半两个入口，一张卡说清"我做得怎么样、还能去哪儿看"
+  hero: {
+    borderWidth: 1, borderColor: C.line, borderRadius: 16,
+    backgroundColor: C.white,
+    paddingHorizontal: 14, paddingVertical: 16, marginBottom: 24,
   },
+  heroStats: { flexDirection: 'row', alignItems: 'center' },
   stat: { flex: 1, alignItems: 'center' },
-  statNum: { fontSize: 20, fontWeight: '600', color: C.text },
-  statLabel: { fontSize: 11, color: C.gray, marginTop: 4 },
-  statDivider: { width: 1, height: 28, backgroundColor: C.line },
+  statNum: { fontSize: 22, fontWeight: '600', color: C.text },
+  statLabel: { fontSize: 11, color: C.gray, marginTop: 5 },
+  statDivider: { width: 1, height: 30, backgroundColor: C.line },
+
+  heroActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  actionCard: {
+    flex: 1, backgroundColor: C.soft, borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 12,
+  },
+  actionIcon: {
+    width: 28, height: 28, borderRadius: 9, backgroundColor: '#EAF1FE',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 9,
+  },
+  actionIconMuted: { backgroundColor: '#EDEFF3' },
+  actionTitle: { fontSize: 13, fontWeight: '600', color: C.text },
+  actionSub: { fontSize: 10, color: C.gray, marginTop: 3 },
 
   section: { marginBottom: 22 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
