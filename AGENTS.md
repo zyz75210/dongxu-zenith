@@ -23,17 +23,21 @@ npx expo install --fix      # fix incompatible package versions
 
 Run lint and typecheck before declaring any task done.
 
-## 提交纪律（只有一条规矩）
+## 提交纪律
 
-**在手机上试过没问题 → 立刻 commit 一次。**
+**手机验过 → 立刻 commit；开工先拉分支；推 GitHub 存档 —— 本地提交不算存档。**
 
+- 开工先 `git checkout -b v1.1`（或当前迭代分支），**不直接改 main**；实验性改动更要在分支上做。
 - 「试过」= 手机 Expo Go 热更新后实际操作一遍（点进去、点按钮、杀进程重开），
   不是 `tsc` 通过、bundle 返回 200 就算数。
 - 一个 commit 只放一个**可在手机上验证的单元**（一个功能 / 一个 bugfix）。
   两件事分两次提交，不合并——否则出问题时无法判断是哪一件坏了，回滚也是一刀切。
 - 验证不通过时，改动留在工作区继续改，**不要先提交再补 fix**。
 - 没验证的改动就是「待验证」状态：可以向用户说明并请对方验，但不先入库。
-- 文档、版本号、`package-lock.json` 跟着对应功能一起提交，不单独占一个 commit。
+  用户明确要求先提交时，必须在 message 里写明「未真机验证」。
+- 文档、版本号、`package-lock.json` 跟着对应功能一起提交；
+  只有与功能无关的单独调整（例如版本命名回退）才允许占一个 `chore:`。
+- 手机验过就 `git push -u origin <branch>`；首次推送带 `-u` 建立跟踪，之后直接 `git push`。
 - message 用 `feat: / fix: / chore: / docs:` 前缀，正文写清「改了什么、为什么」，
   需要时注明这次在手机上验过什么。
 
