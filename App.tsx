@@ -14,6 +14,7 @@ import {
 import { parseDateKey, dateKeyOf, completedStreak } from './src/utils/date';
 import BottomNav, { TabKey } from './src/components/BottomNav';
 import DatePickerSheet from './src/components/DatePickerSheet';
+import DurationPickerSheet from './src/components/DurationPickerSheet';
 import TimePickerSheet from './src/components/TimePickerSheet';
 import SlideScreen from './src/components/SlideScreen';
 import TabPane from './src/components/TabPane';
@@ -455,6 +456,27 @@ export default function App() {
 
   const closeTimePicker = () => setTimePicker((s) => ({ ...s, open: false }));
 
+  /**
+   * 训练时长选择器（时/分两列）。
+   *
+   * 和上面两个选择器同一套做法：面板在最外层渲染，训练页只负责把「当前值」
+   * 和「确定后怎么应用」交出去。放在这里而不是训练页里用 Modal 包的，
+   * 是因为安卓每次开 Modal 都要新建 Dialog 窗口，点开滚轮会顿一下。
+   */
+  const [durPicker, setDurPicker] = useState({ open: false, minutes: 30 });
+  const durCallback = useRef<((total: number) => void) | null>(null);
+
+  // 稳定引用：它被当成 prop 传给常驻的训练页
+  const openDurationPicker = useCallback((
+    current: number,
+    onPick: (total: number) => void,
+  ) => {
+    durCallback.current = onPick;
+    setDurPicker({ open: true, minutes: current });
+  }, []);
+
+  const closeDurationPicker = () => setDurPicker((s) => ({ ...s, open: false }));
+
   // Android 上 SafeAreaView 不处理状态栏，这里手动补状态栏高度 + 额外留白
   const topInset = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) + 10 : 0;
   const bottomInset = Platform.OS === 'android' ? 8 : 0;
@@ -579,7 +601,7 @@ export default function App() {
           <TabPane key={k} active={tab === k}>
             {k === 'train' ? (
               // 训练页整屏固定，不滚动：一进来就是训练面板本身
-              <TrainingScreen />
+              <TrainingScreen onEditDuration={openDurationPicker} />
             ) : (
               <FeatureScreen
                 title={featureConfig[k].title}
@@ -796,6 +818,19 @@ export default function App() {
           timeCallback.current?.(h, m);
           timeCallback.current = null;
           closeTimePicker();
+        }}
+      />
+
+      {/* 训练时长浮层：与上面两套同一套外壳，训练页只交来当前值和「确定后怎么应用」 */}
+      <DurationPickerSheet
+        visible={durPicker.open}
+        minutes={durPicker.minutes}
+        onClose={closeDurationPicker}
+        onConfirm={(total) => {
+          const apply = durCallback.current;
+          durCallback.current = null;
+          closeDurationPicker();
+          apply?.(total);
         }}
       />
 

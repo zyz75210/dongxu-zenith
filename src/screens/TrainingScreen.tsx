@@ -1,21 +1,26 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Svg, { Line } from 'react-native-svg';
+import { MAX_MINUTES, MIN_MINUTES } from '../components/DurationPickerSheet';
+import HeaderCircle from '../components/HeaderCircle';
 import { C } from '../theme';
 
 type MdiName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
-/** 四个跳法：当前只是选中态，各自的动作库后续接 */
+/** 跳绳的四种跳法：目前只切换选中态，各自的动作库 / 计数逻辑后续接 */
 const MODES = [
+  { key: 'timer', label: '定时跳' },
+  { key: 'count', label: '定数跳' },
+  { key: 'trick', label: '花样跳' },
   { key: 'free', label: '自由跳' },
-  { key: 'course', label: '课程跳' },
-  { key: 'ropefree', label: '无绳跳' },
-  { key: 'newbie', label: '新手跳' },
 ] as const;
+
+/** 别的运动类型下，跳法胶囊先留四个空位，形状与跳绳那排完全一致（不让版式跳） */
+const GHOST_PILLS = [0, 1, 2, 3];
 
 /** 运动类型：跳绳默认选中（和设计图一致），另外两个是后续扩展口 */
 const SPORTS: { key: string; label: string; icon: MdiName }[] = [
@@ -24,8 +29,9 @@ const SPORTS: { key: string; label: string; icon: MdiName }[] = [
   { key: 'bike', label: '户外骑行', icon: 'bike' },
 ];
 
-const MIN_DURATION = 5;
-const MAX_DURATION = 180;
+// 时长的上下限只有一处定义（DurationPickerSheet），这里只做别名，避免两处数字走散
+const MIN_DURATION = MIN_MINUTES;
+const MAX_DURATION = MAX_MINUTES;
 const STEP = 5;
 
 const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
@@ -34,11 +40,14 @@ const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
  * 卡片底纹：45° 的浅蓝虚线。
  * 用一张固定坐标系的大 SVG 铺满卡片再裁掉溢出部分 —— 不依赖 Pattern，
  * 也不用等 onLayout 拿尺寸，首帧就是对的。
+ *
+ * memo 是必需的：这 70 条线在父级每次重渲染时都会被重新 diff 一遍（props 没变，
+ * 但元素是新建的），点开时长面板 / 弹提示都会连带跑一次，白占 JS 线程。
  */
 const HATCH_SPAN = 820;
 const HATCH_OFFSETS = Array.from({ length: 70 }, (_, i) => -HATCH_SPAN + i * 26);
 
-function Hatch() {
+const Hatch = memo(function Hatch() {
   return (
     <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" pointerEvents="none">
       {HATCH_OFFSETS.map((x) => (
@@ -56,9 +65,23 @@ function Hatch() {
       ))}
     </Svg>
   );
-}
+});
 
-export default function TrainingScreen() {
+type Props = {
+  /**
+   * 打开时长面板。
+   *
+   * 面板不在本页渲染 —— 它和日历的年月日、日程的起止时间是同一套全屏浮层，
+   * 由 App 在最外层托管。之前这里用 Modal 包着，安卓每次打开都要新建一个
+   * Dialog 窗口，点下去到面板出现之间会明显顿一下。
+   *
+   * 传出去的第二个参数是「确定后怎么应用」：收敛到 5 分钟 ~ 12 小时、超界时提示，
+   * 这些规则留在本页，浮层只管把滚轮上的时/分换算成分钟。
+   */
+  onEditDuration: (current: number, onPick: (total: number) => void) => void;
+};
+
+export default function TrainingScreen({ onEditDuration }: Props) {
   const { height } = useWindowDimensions();
   // 小屏（< 730dp）压一压字号与间距，保证整页在不需要滚动的前提下放得下
   const compact = height < 730;
@@ -66,7 +89,8 @@ export default function TrainingScreen() {
   const timeSize = compact ? 56 : Math.min(78, Math.round(height * 0.09));
 
   const [minutes, setMinutes] = useState(30);
-  const [mode, setMode] = useState<string>('free');
+  // 默认「定时跳」：这一版中间显示的就是目标时长，两处必须对得上
+  const [mode, setMode] = useState<string>('timer');
   const [sport, setSport] = useState<string>('rope');
 
   /**
@@ -106,17 +130,28 @@ export default function TrainingScreen() {
 
   const timeText = `${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`;
 
+  /** 滚轮确定的时长：按 5 ~ 720 分钟收敛。被夹住时说一句，避免"滚到别的数、结果变这样" */
+  const applyDuration = (total: number) => {
+    const clamped = Math.min(MAX_DURATION, Math.max(MIN_DURATION, total));
+    setMinutes(clamped);
+    if (clamped !== total) {
+      showHint(`训练时长限 ${MIN_DURATION} 分钟 ~ ${MAX_DURATION / 60} 小时，已按边界设定`);
+    }
+  };
+
+  const isRope = sport === 'rope';
+
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
         <Text style={styles.title}>训练</Text>
-        <TouchableOpacity
-          style={styles.circle}
-          activeOpacity={0.7}
+        {/* 只开训练页自己的设置，不跳别的页面 */}
+        <HeaderCircle
+          icon="ellipsis-horizontal"
+          label="更多"
+          style={styles.headAct}
           onPress={() => showHint('训练设置待接入')}
-        >
-          <Ionicons name="ellipsis-horizontal" size={18} color={C.text} />
-        </TouchableOpacity>
+        />
       </View>
 
       {/* 目标时长卡片：整页不滚动，卡片吃满剩余高度 */}
@@ -124,59 +159,72 @@ export default function TrainingScreen() {
         <Hatch />
 
         <View style={styles.heroCenter}>
-          <View style={styles.targetRow}>
-            <TouchableOpacity
-              style={styles.chevron}
-              activeOpacity={0.7}
-              onPress={() => changeMinutes(-STEP)}
-            >
-              <Ionicons name="chevron-back" size={13} color={C.text} />
-            </TouchableOpacity>
-            <Text style={styles.targetLabel}>目标时长</Text>
-            <TouchableOpacity
-              style={styles.chevron}
-              activeOpacity={0.7}
-              onPress={() => changeMinutes(STEP)}
-            >
-              <Ionicons name="chevron-forward" size={13} color={C.text} />
-            </TouchableOpacity>
-          </View>
+          {isRope ? (
+            <>
+              <View style={styles.targetRow}>
+                <TouchableOpacity
+                  style={styles.chevron}
+                  activeOpacity={0.7}
+                  onPress={() => changeMinutes(-STEP)}
+                >
+                  <Ionicons name="chevron-back" size={13} color={C.text} />
+                </TouchableOpacity>
+                <Text style={styles.targetLabel}>目标时长</Text>
+                <TouchableOpacity
+                  style={styles.chevron}
+                  activeOpacity={0.7}
+                  onPress={() => changeMinutes(STEP)}
+                >
+                  <Ionicons name="chevron-forward" size={13} color={C.text} />
+                </TouchableOpacity>
+              </View>
 
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => showHint('自定义时长（时:分）设置待接入')}
-          >
-            <Text
-              style={[
-                styles.time,
-                { fontSize: timeSize, lineHeight: Math.round(timeSize * 1.16) },
-              ]}
-            >
-              {timeText}
-            </Text>
-            <Text style={styles.timeHint}>点击设定（时:分）</Text>
-          </TouchableOpacity>
+              {/* 点数字 = 打开滚轮，和日历里改年月日是同一个面板 */}
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => onEditDuration(minutes, applyDuration)}
+              >
+                <Text
+                  style={[
+                    styles.time,
+                    { fontSize: timeSize, lineHeight: Math.round(timeSize * 1.16) },
+                  ]}
+                >
+                  {timeText}
+                </Text>
+                <Text style={styles.timeHint}>点击设定（时:分）</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            // 跑步 / 骑行：中间的计时面板还没想清楚怎么记，先摆一句实话
+            <Text style={styles.soonText}>功能还在开发</Text>
+          )}
         </View>
 
         <View style={styles.modeRow}>
-          {MODES.map((m) => {
-            const on = m.key === mode;
-            return (
-              <TouchableOpacity
-                key={m.key}
-                style={[styles.modePill, on && styles.modePillOn]}
-                activeOpacity={0.85}
-                onPress={() => {
-                  setMode(m.key);
-                  if (!on) showHint(`已切换到${m.label} · 动作库待接入`);
-                }}
-              >
-                <Text style={[styles.modeText, on && styles.modeTextOn]} numberOfLines={1}>
-                  {m.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+          {isRope
+            ? MODES.map((m) => {
+              const on = m.key === mode;
+              return (
+                <TouchableOpacity
+                  key={m.key}
+                  style={[styles.modePill, on && styles.modePillOn]}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    setMode(m.key);
+                    if (!on) showHint(`已切换到${m.label} · 动作库待接入`);
+                  }}
+                >
+                  <Text style={[styles.modeText, on && styles.modeTextOn]} numberOfLines={1}>
+                    {m.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })
+            // 跑步 / 骑行暂时没有跳法：保留四个等宽空胶囊占位，后续按各自玩法填
+            : GHOST_PILLS.map((k) => (
+              <View key={k} style={[styles.modePill, styles.modePillGhost]} />
+            ))}
         </View>
       </View>
 
@@ -214,7 +262,7 @@ export default function TrainingScreen() {
         })}
       </View>
 
-      {/* 底部：音乐 / GO / 相机 */}
+      {/* 底部：音乐 / GO / 成绩 */}
       <View style={[styles.actionRow, compact && styles.actionRowCompact]}>
         <TouchableOpacity
           style={styles.sidePill}
@@ -233,13 +281,14 @@ export default function TrainingScreen() {
           <Text style={[styles.goText, compact && { fontSize: 22 }]}>GO</Text>
         </TouchableOpacity>
 
+        {/* 成绩：入口先接提示，之后从这里进「历史成绩」记录页 */}
         <TouchableOpacity
           style={styles.sidePill}
           activeOpacity={0.85}
-          onPress={() => showHint('训练拍照记录待接入')}
+          onPress={() => showHint('训练成绩记录待接入')}
         >
-          <MaterialCommunityIcons name="camera-outline" size={15} color={C.text} />
-          <Text style={styles.sideText}>相机</Text>
+          <MaterialCommunityIcons name="trophy-outline" size={15} color={C.text} />
+          <Text style={styles.sideText}>成绩</Text>
         </TouchableOpacity>
       </View>
 
@@ -268,11 +317,7 @@ const styles = StyleSheet.create({
     marginBottom: 14, paddingTop: 4,
   },
   title: { fontSize: 22, fontWeight: 'bold', color: C.text, letterSpacing: 0.3 },
-  circle: {
-    marginLeft: 'auto',
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: C.soft, alignItems: 'center', justifyContent: 'center',
-  },
+  headAct: { marginLeft: 'auto' },
 
   hero: {
     flex: 1,
@@ -303,6 +348,11 @@ const styles = StyleSheet.create({
   },
   timeHint: { fontSize: 10.5, color: C.gray, textAlign: 'center', marginTop: 2 },
 
+  /** 跑步 / 骑行：中间的计时面板还没有方案，只放一句实话 */
+  soonText: {
+    fontSize: 17, color: '#93A1B6', fontWeight: '600', letterSpacing: 0.8,
+  },
+
   modeRow: { flexDirection: 'row', gap: 7 },
   modePill: {
     flex: 1, height: 30, borderRadius: 15,
@@ -311,6 +361,8 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   modePillOn: { backgroundColor: C.primary, borderColor: C.primary },
+  /** 空占位：只留胶囊形状，不写文字、不可点，等各自的玩法定下来再填 */
+  modePillGhost: { backgroundColor: 'rgba(255,255,255,0.55)', borderColor: '#E7EDF8' },
   modeText: { fontSize: 11, color: '#5C6577' },
   modeTextOn: { color: C.white, fontWeight: 'bold' },
 
