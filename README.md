@@ -52,7 +52,47 @@ $env:REACT_NATIVE_PACKAGER_HOSTNAME="192.168.10.103"; npx expo start --lan
 npx eas-cli build --platform android --profile preview
 ```
 
-`preview` 出 APK（装机测试用），`production` 出 AAB（应用商店用）。详见 `eas.json`。
+默认构建会打出**四种 CPU 架构**的原生库（arm64-v8a / armeabi-v7a / x86 / x86_64），
+其中 x86 与 x86_64 只服务于安卓模拟器（x86 平板极少），真机正常安装时用不到，
+却占了安装包的 37MB。
+`preview` 与 `preview-lite` 都用 `gradleCommand` 显式限定架构，只打真机需要的：
+
+| profile | 架构 | 适用 | 预计体积 |
+|---|---|---|---|
+| `preview` | arm64-v8a + armeabi-v7a | 所有真机（含少量 32 位老机） | ~36.7MB（-50%） |
+| `preview-lite` | arm64-v8a | 只给 64 位机，体积最小 | ~24.3MB（-67%） |
+| `production` | 全部（AAB） | 应用商店由 Play 按机型分发 | — |
+
+```bash
+npx eas-cli build --platform android --profile preview-lite   # 要最小就用这个
+```
+
+限定架构的写法是 `-PreactNativeArchitectures=...`（Gradle 项目属性，会覆盖
+`android/gradle.properties` 里的默认值）。**代价**：这两个 APK 都装不进模拟器，
+要在模拟器上跑请临时去掉该参数，或者直接 `npx expo start` 用 Expo Go。
+
+`production` 保持 `app-bundle`：AAB 由 Play 在分发时按机型切分，四种架构不会都塞给同一台手机。
+
+### 安装包体积构成（1.1.0 实测 74.2MB）
+
+| 项 | 体积 | 说明 |
+|---|---|---|
+| `lib/` 原生库 ×4 架构 | 65.4MB | arm64 17MB + v7a 12MB + x86 19MB + x86_64 18MB；**唯一的大头** |
+| `classes.dex` | 4.8MB | 已开 R8（`android.enableMinifyInReleaseBuilds=true`） |
+| `res/` | 2.9MB | 其中两个图标字体 1.66MB（Ionicons 384KB + MaterialCommunityIcons 1.28MB） |
+| `assets/` | 1.7MB | JS 包（Hermes 字节码，压缩方式为 Stored） |
+
+我方代码只占其中约 1.7MB，所以「优化 JS 代码」对安装包体积的影响不超过 2%；
+真正能压的是架构、字体、资源这几块。已经做的：限定架构（-37MB）。
+还能做但**没做**（各有代价，等需要时再开）：
+
+- **图标字体做子集**：只保留用到的几十个字形，1.66MB → 约 30KB。字形轮廓不变、显示效果不变，
+  但需要改 `@expo/vector-icons` 的引用方式，且以后每加一个新图标都要重新生成子集，
+  漏一个就会显示空白，必须在真机上逐个图标核过。
+- **开 `useLegacyPackaging`**：原生库会被压缩进 APK（下载体积再小一半），
+  但安装后要在 `/data` 里解压一份，**装完占的空间反而更大、首次启动更慢**，与「轻量」相悖，不建议。
+- **关掉 GIF / WebP 解码器**（`expo.gif.enabled` / `expo.webp.enabled`）：约 -0.8MB，
+  但要保证以后不从相册选这两种格式的头像。
 
 ## 技术栈
 

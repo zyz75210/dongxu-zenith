@@ -8,6 +8,8 @@ node_modules/
 dist/
 web-build/
 expo-env.d.ts
+# 测量包体积用的临时导出目录（expo export）
+.tmp-export/
 
 # Native
 .kotlin/
