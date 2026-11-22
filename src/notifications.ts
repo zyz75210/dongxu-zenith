@@ -155,23 +155,47 @@ export async function requestPermissionIfNeeded(): Promise<PermissionState> {
 }
 
 /**
- * 某条日程应该在什么时刻提醒（毫秒时间戳）。
- * 不该提醒的情况统一返回 null：没开提醒 / 时间已过 / 数据非法。
+ * 一条日程该在什么时刻提醒，以及这条提醒属于哪一类。
+ *
+ * 两类：
+ * - lead：正常情况下「开始前 15 分钟」；
+ * - start：已经进了 15 分钟窗口（提前量那个点过去了），改成**开始时**提醒一次。
+ *   时间戳固定为开始时刻，所以重排多少次都不会漂移、也不会重复触发。
+ *
+ * 不该提醒的情况统一返回 null：没开提醒 / 已完成 / 已经开始 / 数据非法。
  * 纯函数，不碰通知 API —— 方便单独测。
  */
-export function remindAtOf(
-  item: Pick<Schedule, 'date' | 'start' | 'remind'>,
+export type ReminderKind = 'lead' | 'start';
+export type ReminderPlan = { at: number; kind: ReminderKind };
+
+export function planReminder(
+  item: Pick<Schedule, 'date' | 'start' | 'remind' | 'completed'>,
   now: number = Date.now(),
-): number | null {
-  if (!item.remind) return null;
+): ReminderPlan | null {
+  // 已经打卡完成的日程不该再提醒：用户已经做完了，到点再推一条就是噪音
+  if (!item.remind || item.completed) return null;
 
   const { y, m, d } = parseDateKey(item.date);
   const [h, min] = item.start.split(':').map((n) => Number.parseInt(n, 10));
   if (![y, m, d, h, min].every((n) => Number.isFinite(n))) return null;
 
-  const at = new Date(y, m, d, h, min, 0, 0).getTime() - REMIND_MINUTES * 60_000;
-  // 已经过点的提醒直接丢掉：补发一条「15 分钟前该开始了」没有意义
-  return Number.isFinite(at) && at > now ? at : null;
+  const startAt = new Date(y, m, d, h, min, 0, 0).getTime();
+  if (!Number.isFinite(startAt) || startAt <= now) return null;   // 已经开始 / 已过去
+
+  const leadAt = startAt - REMIND_MINUTES * 60_000;
+  if (leadAt > now) return { at: leadAt, kind: 'lead' };
+
+  // 距开始不足 15 分钟：没有「提前 15 分钟」这个时刻可用，
+  // 但也不能干脆不提醒（用户会以为开了提醒却没响），改成开始时提醒一次
+  return { at: startAt, kind: 'start' };
+}
+
+/** 保存时用：这条日程是不是落在 15 分钟窗口内（提醒被改到开始时） */
+export function isWithinLeadWindow(
+  item: Pick<Schedule, 'date' | 'start' | 'remind' | 'completed'>,
+  now: number = Date.now(),
+): boolean {
+  return planReminder(item, now)?.kind === 'start';
 }
 
 /** 取消本 App 排下的所有待发通知。读不到就当没有，别让取消失败挡住重排 */
@@ -186,7 +210,9 @@ async function cancelOwn(): Promise<void> {
 }
 
 /**
- * 全量重排：先清掉旧的，再把所有未来日程按「开始前 15 分钟」重新排一遍。
+ * 全量重排：先清掉旧的，再把所有未来日程重新排一遍。
+ * 规则见 planReminder：正常日程按「开始前 15 分钟」，已进 15 分钟窗口的改到「开始时」，
+ * 已完成 / 已开始的一律不排。
  * 增删改一条日程后调用即可，不用逐个 diff（条数很少，一次全量最不容易出错）。
  *
  * request=true 时会在权限未决时弹授权框（只在用户主动操作后传 true）。
@@ -207,25 +233,28 @@ export async function syncReminders(
 
   const now = Date.now();
   const upcoming = items
-    .map((item) => ({ item, at: remindAtOf(item, now) }))
-    .filter((x): x is { item: Schedule; at: number } => x.at !== null)
-    .sort((a, b) => a.at - b.at)
+    .map((item) => ({ item, plan: planReminder(item, now) }))
+    .filter((x): x is { item: Schedule; plan: ReminderPlan } => x.plan !== null)
+    .sort((a, b) => a.plan.at - b.plan.at)
     .slice(0, MAX_SCHEDULED);
 
   let scheduled = 0;
-  for (const { item, at } of upcoming) {
+  for (const { item, plan } of upcoming) {
     try {
       await Notifications.scheduleNotificationAsync({
         content: {
           title: item.title,
-          body: `${item.start} - ${item.end} 开始，还有 ${REMIND_MINUTES} 分钟`,
+          // 窗口内改到「开始时」的，文案也要跟着变，不能还说「还有 15 分钟」
+          body: plan.kind === 'lead'
+            ? `${item.start} - ${item.end} 开始，还有 ${REMIND_MINUTES} 分钟`
+            : `现在开始 · ${item.start} - ${item.end}`,
           data: { app: MARK, scheduleId: item.id },
           sound: 'default',
         },
         trigger: {
           // SDK 58 起 trigger 必须带 type，不能只传 Date
           type: Notifications.SchedulableTriggerInputTypes.DATE,
-          date: at,
+          date: plan.at,
           ...(withChannel ? { channelId: CHANNEL_ID } : {}),
         },
       });

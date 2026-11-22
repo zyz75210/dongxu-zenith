@@ -7,8 +7,8 @@ import { C } from './src/theme';
 import { initialSchedules, initialProfile, Profile, Schedule } from './src/data';
 import { loadPersistedData, savePersistedData } from './src/storage';
 import {
-  consumeFreshGrant, deviceBrand, needsBatteryHint, openAppSystemSettings,
-  requestPermissionIfNeeded, syncReminders,
+  consumeFreshGrant, deviceBrand, isWithinLeadWindow, needsBatteryHint,
+  openAppSystemSettings, REMIND_MINUTES, requestPermissionIfNeeded, syncReminders,
 } from './src/notifications';
 import { parseDateKey, completedStreak } from './src/utils/date';
 import BottomNav, { TabKey } from './src/components/BottomNav';
@@ -16,6 +16,7 @@ import DatePickerSheet from './src/components/DatePickerSheet';
 import TimePickerSheet from './src/components/TimePickerSheet';
 import SlideScreen from './src/components/SlideScreen';
 import BatteryHintSheet from './src/components/BatteryHintSheet';
+import Toast from './src/components/Toast';
 import CalendarScreen from './src/screens/CalendarScreen';
 import AddScheduleScreen from './src/screens/AddScheduleScreen';
 import DetailScreen from './src/screens/DetailScreen';
@@ -135,6 +136,21 @@ export default function App() {
    * 只在国产 ROM 上弹（那些系统会掐后台闹钟），其余机型不打扰。
    */
   const [batteryHint, setBatteryHint] = useState(false);
+
+  /**
+   * 全局轻提示：目前用于「日程距开始不足 15 分钟，提醒改到开始时」这一条，
+   * 后续其它需要"说一句"的操作可以直接复用。
+   */
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((text: string) => {
+    setToast(text);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2400);
+  }, []);
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+  }, []);
 
   const bumpReminders = useCallback(() => {
     setReminderTick((n) => n + 1);
@@ -326,6 +342,12 @@ export default function App() {
 
   const addSchedule = useCallback((draft: Omit<Schedule, 'id'>) => {
     Keyboard.dismiss();
+    // 保存时就告诉用户：这条已经进了 15 分钟窗口，提醒会改成「开始时」发一条，
+    // 否则用户会以为「开了提醒却没响」。编辑已完成的那条不提示（本来就不会提醒）。
+    const completed = editingId ? Boolean(editItem?.completed) : false;
+    if (isWithinLeadWindow({ ...draft, completed })) {
+      showToast(`距开始不足 ${REMIND_MINUTES} 分钟，提醒改为开始时发送`);
+    }
     // 用户刚表达了「要提醒」，这一刻弹授权最容易被接受；拿到权限后 bump 一次重排
     if (draft.remind) {
       void requestPermissionIfNeeded().then((state) => {
@@ -348,7 +370,7 @@ export default function App() {
     // 保存后跳到该日程所在日期，能立刻看到它
     setJumpDate(parseDateKey(item.date));
     setPage('main');
-  }, [editingId, bumpReminders]);
+  }, [editingId, editItem, bumpReminders, showToast]);
 
   const deleteSchedule = useCallback((id: string) => {
     setSchedules((list) => list.filter((s) => s.id !== id));
@@ -688,6 +710,8 @@ export default function App() {
           closeTimePicker();
         }}
       />
+
+      <Toast message={toast} />
 
       {/* 省电策略引导：刚授完通知权限、且是国产 ROM 机型时弹一次 */}
       <BatteryHintSheet
