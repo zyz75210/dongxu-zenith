@@ -11,6 +11,7 @@ import CompletionButton, { CompletionState } from '../components/CompletionButto
 type Props = {
   item: Schedule;
   onBack: () => void;
+  onEdit: (item: Schedule) => void;
   onDelete: (id: string) => void;
   onToggleComplete: (id: string) => void;
 };
@@ -21,7 +22,7 @@ const typeName: Record<string, string> = {
 };
 
 function DetailScreen({
-  item, onBack, onDelete, onToggleComplete,
+  item, onBack, onEdit, onDelete, onToggleComplete,
 }: Props) {
   const remove = () => {
     Alert.alert('删除日程', `确定删除「${item.title}」吗？`, [
@@ -141,7 +142,7 @@ function DetailScreen({
 
       {/* 底部按钮 */}
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.editBtn} onPress={onBack} activeOpacity={0.85}>
+        <TouchableOpacity style={styles.editBtn} onPress={() => onEdit(item)} activeOpacity={0.85}>
           <Ionicons name="create-outline" size={16} color={C.white} />
           <Text style={styles.editText}>编辑日程</Text>
         </TouchableOpacity>

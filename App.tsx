@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Animated, BackHandler, Keyboard, Platform, SafeAreaView, StatusBar, StyleSheet, View,
+  Animated, AppState, BackHandler, Keyboard, Platform,
+  SafeAreaView, StatusBar, StyleSheet, View,
 } from 'react-native';
 import { C } from './src/theme';
 import { initialSchedules, initialProfile, Profile, Schedule } from './src/data';
+import { loadPersistedData, savePersistedData } from './src/storage';
 import { parseDateKey, completedStreak } from './src/utils/date';
 import BottomNav, { TabKey } from './src/components/BottomNav';
 import DatePickerSheet from './src/components/DatePickerSheet';
@@ -87,11 +89,92 @@ export default function App() {
   // 详情页只记 id，条目内容从 schedules 派生 —— 完成状态改变时详情页能立刻刷新
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // 全部日程（内存态）：新增 / 删除 / 完成状态都直接改这里，日历页按日期过滤展示
+  /**
+   * 正在编辑哪一条：null = 新建。添加页被新建和编辑共用，
+   * 靠这一个 id 决定「表单从哪儿回填」和「保存时是追加还是覆盖」。
+   * 放在页面状态旁边：goBack 要用它决定返回目标（编辑态回详情，新建态回主界面）。
+   */
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // 全部日程：新增 / 删除 / 完成状态都直接改这里，日历页按日期过滤展示
   const [schedules, setSchedules] = useState<Schedule[]>(initialSchedules);
 
-  // 个人资料（内存态）：头像 / 名字 / 生日，"我的"页与编辑页共用
+  // 个人资料：头像 / 名字 / 生日，"我的"页与编辑页共用
   const [profile, setProfile] = useState<Profile>(initialProfile);
+
+  /**
+   * 本地持久化：启动时从 AsyncStorage 读回，之后 schedules/profile 一变就防抖写回。
+   * 读写的序列化 / 校验在 src/storage.ts，这里只负责「什么时候读、什么时候写」。
+   *
+   * 四条时序保护（少一条就会丢数据）：
+   * 1) hydrated 门控——读取完成前绝不写盘，否则首帧会用初始值覆盖已存数据；
+   * 2) ready 门控——读取完成前不渲染业务页，否则首帧会闪一下「今天还没有日程」，
+   *    而且这几十毫秒里用户新增的日程会被读回的数据覆盖；
+   * 3) skipNextSave——刚读回来的那份不立刻原样写回去，省一次无意义的写盘；
+   * 4) latest ref——切后台 / 卸载时拿的是最新值，不会因闭包陈旧漏掉防抖窗口里的改动。
+   * 写入都 fire-and-forget（void），不阻塞 UI，失败在 storage.ts 内部已吞掉。
+   */
+  const hydrated = useRef(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipNextSave = useRef(false);
+  const latest = useRef({ schedules, profile });
+  latest.current = { schedules, profile };
+
+  const flushSave = useCallback(() => {
+    if (!hydrated.current) return;
+    if (saveTimer.current !== null) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    void savePersistedData(latest.current.schedules, latest.current.profile);
+  }, []);
+
+  /** 数据是否已从磁盘读回。为 false 时只渲染底色，不建业务页。 */
+  const [ready, setReady] = useState(false);
+
+  // 启动读一次：读到才 setState；没读到（首次安装 / 数据损坏）保留初始值即可
+  useEffect(() => {
+    let alive = true;
+    // 兜底：万一存储层卡住（极少见），1.2s 后也放行，不能让用户对着白屏等
+    const bail = setTimeout(() => { if (alive) setReady(true); }, 1200);
+    loadPersistedData().then((data) => {
+      if (!alive) return;
+      clearTimeout(bail);
+      if (data) {
+        skipNextSave.current = true;
+        setSchedules(data.schedules);
+        setProfile(data.profile);
+      }
+      hydrated.current = true;
+      setReady(true);          // 和上面的 setState 同批提交，不会闪空态
+    });
+    return () => { alive = false; clearTimeout(bail); };
+  }, []);
+
+  // 数据变更：防抖 300ms 写回；hydrated 之前跳过（用初始值覆盖已存数据的风险）
+  useEffect(() => {
+    if (!hydrated.current) return;
+    if (skipNextSave.current) { skipNextSave.current = false; return; }
+    if (saveTimer.current !== null) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = null;
+      void savePersistedData(latest.current.schedules, latest.current.profile);
+    }, 300);
+    return () => {
+      if (saveTimer.current !== null) clearTimeout(saveTimer.current);
+    };
+  }, [schedules, profile]);
+
+  // 切后台 / 卸载时立即落盘，保住防抖窗口里最后那次改动（杀 App 不发 onSnapshot）
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'background' || next === 'inactive') flushSave();
+    });
+    return () => {
+      sub.remove();
+      flushSave();
+    };
+  }, [flushSave]);
 
   const selected = selectedId
     ? schedules.find((s) => s.id === selectedId) ?? null
@@ -125,6 +208,9 @@ export default function App() {
     if (preloadTimer.current) clearTimeout(preloadTimer.current);
   }, []);
   useEffect(() => {
+    // 等水合完成再排预热：否则读盘慢的机器上，前几个定时器会在首帧之前就烧完，
+    // 详情 / 添加两页全挤在首帧一起建，正好把水合省下来的时间又还回去。
+    if (!ready) return;
     const order = ['detail', 'add', 'profile', 'profileEdit'] as const;
     const timers = [
       ...order.map((k, i) =>
@@ -134,7 +220,7 @@ export default function App() {
     ];
     return () => timers.forEach(clearTimeout);
     // 历史日程不预热：它要遍历全部日程建视图，留到真正点开时再建
-  }, []);
+  }, [ready]);
 
   /**
    * 详情页退场时条目可能已经被删掉（selected 变成 null），
@@ -174,9 +260,12 @@ export default function App() {
       if (p === 'profileEdit') return 'profile';
       if (p === 'history') return historyFrom.current;
       if (p === 'detail') return detailFrom.current;
+      // 添加页：编辑态退回详情，新建态回主界面（和右上角关闭走同一条路）
+      if (p === 'add') return editingId ? 'detail' : 'main';
       return 'main';
     });
-  }, []);
+    setEditingId(null);
+  }, [editingId]);
 
   useEffect(() => {
     if (page === 'main') return;
@@ -207,8 +296,20 @@ export default function App() {
   // 保存后让日历跳到那一天
   const [jumpDate, setJumpDate] = useState(selDateRef.current);
 
+  const editItem = editingId
+    ? schedules.find((s) => s.id === editingId) ?? null
+    : null;
+
   const addSchedule = useCallback((draft: Omit<Schedule, 'id'>) => {
     Keyboard.dismiss();
+    // 编辑分支：只覆盖草稿里的字段，id 和 completed 原样保留（改个标题不该把打卡记录清掉）
+    if (editingId) {
+      setSchedules((list) => list.map((s) => (s.id === editingId ? { ...s, ...draft } : s)));
+      setJumpDate(parseDateKey(draft.date));
+      setEditingId(null);
+      setPage('detail');        // 改完回详情页，能立刻看到新内容
+      return;
+    }
     const item: Schedule = {
       ...draft,
       id: `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
@@ -217,7 +318,7 @@ export default function App() {
     // 保存后跳到该日程所在日期，能立刻看到它
     setJumpDate(parseDateKey(item.date));
     setPage('main');
-  }, []);
+  }, [editingId]);
 
   const deleteSchedule = useCallback((id: string) => {
     setSchedules((list) => list.filter((s) => s.id !== id));
@@ -322,18 +423,24 @@ export default function App() {
   const openProfile = useCallback(() => setPage('profile'), []);
   // 打开添加页：顺手把日历当前选中的日期带上（同批提交，不额外渲染）
   const openAdd = useCallback(() => {
+    setEditingId(null);       // 从加号进来一律是"新建"，别继承上一次的编辑目标
     setAddDate(selDateRef.current);
     setPage('add');
   }, []);
 
-  /**
-   * 二级页面现在不会卸载（为了开页不卡），
-   * 所以收起页面时要主动收键盘，否则键盘会留在屏幕上。
-   */
-  const backToMain = useCallback(() => {
-    Keyboard.dismiss();
-    setPage('main');
+  /** 详情页点「编辑日程」：同一条日程，进添加页的「修改」分支 */
+  const openEdit = useCallback((item: Schedule) => {
+    setEditingId(item.id);
+    setPage('add');
   }, []);
+
+  /** 关掉添加页：编辑态退回详情（还要接着看），新建态回主界面 */
+  const closeAdd = useCallback(() => {
+    Keyboard.dismiss();
+    setEditingId(null);
+    setPage(editingId ? 'detail' : 'main');
+  }, [editingId]);
+
   const openProfileEdit = useCallback(() => setPage('profileEdit'), []);
   const backToProfile = useCallback(() => {
     Keyboard.dismiss();
@@ -395,6 +502,19 @@ export default function App() {
       <BottomNav active={tab} onChange={setTab} />
     </>
   );
+
+  /**
+   * 数据还没从磁盘读回来：只铺一层底色。
+   * 这几十毫秒里如果照常渲染，用户会先看到空列表再被数据顶一下（闪），
+   * 更糟的是这期间新增的日程会被随后读回的快照覆盖掉。
+   */
+  if (!ready) {
+    return (
+      <View style={styles.root}>
+        <StatusBar barStyle="dark-content" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>
@@ -478,6 +598,7 @@ export default function App() {
           <DetailScreen
             item={detailItem ?? WARM_ITEM}
             onBack={backFromDetail}
+            onEdit={openEdit}
             onDelete={deleteSchedule}
             onToggleComplete={toggleComplete}
           />
@@ -492,8 +613,9 @@ export default function App() {
         >
           <AddScheduleScreen
             visible={page === 'add'}
-            onClose={backToMain}
+            onClose={closeAdd}
             initialDate={addDate}
+            editItem={editItem}
             onOpenDate={openPicker}
             onOpenTime={openTimePicker}
             onSave={addSchedule}

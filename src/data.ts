@@ -19,7 +19,7 @@ export type Schedule = {
   completed?: boolean;
 };
 
-/** 个人资料：目前存在内存里，"我的"页和编辑页共用一个来源 */
+/** 个人资料：由 App.tsx 持有，"我的"页和编辑页共用一个来源；已随日程一起持久化 */
 export type Profile = {
   name: string;
   /** 个人昵称：显示在"我的"页名字下方 */
@@ -38,5 +38,8 @@ export const initialProfile: Profile = {
   birthday: { y: 1997, m: 10, d: 2 },
 };
 
-/** 首次启动的日程：空的，让用户自己录入（本地还没有持久化，关掉 App 会回到这里） */
+/**
+ * 首次启动（磁盘上还没有存过数据）时的日程：空的，让用户自己录入。
+ * 之后一律从 src/storage.ts 读回，这两个初始值只在「首次安装 / 数据损坏」时兜底。
+ */
 export const initialSchedules: Schedule[] = [];

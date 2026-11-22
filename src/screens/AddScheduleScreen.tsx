@@ -5,14 +5,16 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { C, WEEK_DAYS } from '../theme';
 import { Schedule, ScheduleType } from '../data';
-import { dateKey, weekdayIndex } from '../utils/date';
+import { dateKey, parseDateKey, weekdayIndex } from '../utils/date';
 
 type Props = {
   /** 是否可见：页面常驻不卸载，靠它判断"重新打开了"从而重置表单 */
   visible?: boolean;
   onClose: () => void;
-  /** 默认日期：日历当前选中的那天 */
+  /** 默认日期：日历当前选中的那天（新建时用） */
   initialDate: { y: number; m: number; d: number };
+  /** 编辑目标：非空时本页进入「修改」分支，表单从这条日程回填 */
+  editItem?: Schedule | null;
   onOpenDate: (
     init: { y: number; m: number; d: number },
     onPick: (y: number, m: number, d: number) => void,
@@ -22,7 +24,7 @@ type Props = {
     init: { h: number; m: number },
     onPick: (h: number, m: number) => void,
   ) => void;
-  /** 保存：把草稿交给上层写进列表（id 由上层生成） */
+  /** 保存：把草稿交给上层 —— 新建走追加，编辑走覆盖（id / completed 由上层保留） */
   onSave: (draft: Omit<Schedule, 'id'>) => void;
 };
 
@@ -38,38 +40,67 @@ const types: { key: ScheduleType; label: string }[] = [
 const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
 const timeText = (t: { h: number; m: number }) => `${pad2(t.h)}:${pad2(t.m)}`;
 
+/** 'HH:mm' -> { h, m }；脏值（空串 / 非数字）退化成 0，不让表单崩 */
+const parseTime = (t: string): { h: number; m: number } => {
+  const [h, m] = t.split(':').map((n) => Number.parseInt(n, 10));
+  return {
+    h: Number.isFinite(h) ? Math.min(23, Math.max(0, h)) : 0,
+    m: Number.isFinite(m) ? Math.min(59, Math.max(0, m)) : 0,
+  };
+};
+
+// 新建日程时的默认值（编辑时全部由 editItem 覆盖）
+const BLANK = {
+  title: '设计评审会议',
+  type: 'work' as ScheduleType,
+  note: '',
+  remind: true,
+  start: { h: 14, m: 0 },
+  end: { h: 15, m: 30 },
+};
+
 function AddScheduleScreen({
-  visible = true, onClose, initialDate, onOpenDate, onOpenTime, onSave,
+  visible = true, onClose, initialDate, editItem = null, onOpenDate, onOpenTime, onSave,
 }: Props) {
-  const [title, setTitle] = useState('设计评审会议');
-  const [type, setType] = useState<ScheduleType>('work');
-  const [note, setNote] = useState('');
-  const [remind, setRemind] = useState(true);
+  const [title, setTitle] = useState(BLANK.title);
+  const [type, setType] = useState<ScheduleType>(BLANK.type);
+  const [note, setNote] = useState(BLANK.note);
+  const [remind, setRemind] = useState(BLANK.remind);
 
   const [date, setDate] = useState(initialDate);
-  const [start, setStart] = useState({ h: 14, m: 0 });
-  const [end, setEnd] = useState({ h: 15, m: 30 });
+  const [start, setStart] = useState(BLANK.start);
+  const [end, setEnd] = useState(BLANK.end);
 
   /**
    * 这个页面现在会常驻在屏幕外（为了开页不卡），
-   * 所以每次重新打开时手动把表单清回默认值，避免看到上一次填的内容。
+   * 所以每次重新打开时手动把表单重置一遍：新建回默认值，编辑按 editItem 回填。
    */
   const prevVisible = useRef(false);
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   useEffect(() => {
     if (visible && !prevVisible.current) {
-      setTitle('设计评审会议');
-      setType('work');
-      setNote('');
-      setRemind(true);
-      setDate(initialDate);
-      setStart({ h: 14, m: 0 });
-      setEnd({ h: 15, m: 30 });
+      if (editItem) {
+        setTitle(editItem.title);
+        setType(editItem.type);
+        setNote(editItem.note ?? '');
+        setRemind(editItem.remind ?? false);
+        setDate(parseDateKey(editItem.date));
+        setStart(parseTime(editItem.start));
+        setEnd(parseTime(editItem.end));
+      } else {
+        setTitle(BLANK.title);
+        setType(BLANK.type);
+        setNote(BLANK.note);
+        setRemind(BLANK.remind);
+        setDate(initialDate);
+        setStart(BLANK.start);
+        setEnd(BLANK.end);
+      }
       // 页面常驻不卸载，上次滑到的位置会留着，重新打开时回到顶部
       scrollRef.current?.scrollTo({ y: 0, animated: false });
     }
     prevVisible.current = visible;
-  }, [visible, initialDate]);
+  }, [visible, initialDate, editItem]);
 
   const dateText = `${date.y}年${date.m + 1}月${date.d}日 星期${
     WEEK_DAYS[weekdayIndex(new Date(date.y, date.m, date.d))]
@@ -114,13 +145,13 @@ function AddScheduleScreen({
           <TouchableOpacity style={styles.circle} onPress={onClose} activeOpacity={0.7}>
             <Ionicons name="close-outline" size={18} color={C.text} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>添加日程</Text>
+          <Text style={styles.headerTitle}>{editItem ? '编辑日程' : '添加日程'}</Text>
           <TouchableOpacity style={styles.circle} activeOpacity={0.7}>
             <Ionicons name="ellipsis-horizontal" size={18} color={C.text} />
           </TouchableOpacity>
         </View>
         <Text style={styles.subtitle}>
-          为 {date.y}年{date.m + 1}月{date.d}日 创造新的安排
+          {editItem ? '修改' : '为'} {date.y}年{date.m + 1}月{date.d}日 {editItem ? '的安排' : '创造新的安排'}
         </Text>
 
         {/* 标题 */}
@@ -240,7 +271,7 @@ function AddScheduleScreen({
       {/* 保存按钮 */}
       <View style={styles.footer}>
         <TouchableOpacity style={styles.saveBtn} onPress={save} activeOpacity={0.85}>
-          <Text style={styles.saveText}>保存日程</Text>
+          <Text style={styles.saveText}>{editItem ? '保存修改' : '保存日程'}</Text>
         </TouchableOpacity>
       </View>
     </View>
