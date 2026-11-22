@@ -6,6 +6,7 @@ import {
 import { C } from './src/theme';
 import { initialSchedules, initialProfile, Profile, Schedule } from './src/data';
 import { loadPersistedData, savePersistedData } from './src/storage';
+import { requestPermissionIfNeeded, syncReminders } from './src/notifications';
 import { parseDateKey, completedStreak } from './src/utils/date';
 import BottomNav, { TabKey } from './src/components/BottomNav';
 import DatePickerSheet from './src/components/DatePickerSheet';
@@ -132,6 +133,10 @@ export default function App() {
   /** 数据是否已从磁盘读回。为 false 时只渲染底色，不建业务页。 */
   const [ready, setReady] = useState(false);
 
+  /** +1 就触发一次提醒重排（授权成功后用，见下面的 effect） */
+  const [reminderTick, setReminderTick] = useState(0);
+  const bumpReminders = useCallback(() => setReminderTick((n) => n + 1), []);
+
   // 启动读一次：读到才 setState；没读到（首次安装 / 数据损坏）保留初始值即可
   useEffect(() => {
     let alive = true;
@@ -164,6 +169,20 @@ export default function App() {
       if (saveTimer.current !== null) clearTimeout(saveTimer.current);
     };
   }, [schedules, profile]);
+
+  /**
+   * 提醒排程：日程一变就把待发提醒全量重排一遍。
+   * 防抖 800ms 比落盘稍长，连续操作时只排最后一次；
+   * 没给权限时 syncReminders 内部直接返回 0，不会弹窗——授权只发生在用户主动操作之后。
+   *
+   * reminderTick 是「刚拿到权限，重排一次」的开关：授权回调里只把计数 +1，
+   * 真正读 schedules 的是这个 effect（拿到的永远是最新值，不会用陈旧的闭包把新日程漏掉）。
+   */
+  useEffect(() => {
+    if (!ready) return;
+    const t = setTimeout(() => { void syncReminders(latest.current.schedules); }, 800);
+    return () => clearTimeout(t);
+  }, [schedules, ready, reminderTick]);
 
   // 切后台 / 卸载时立即落盘，保住防抖窗口里最后那次改动（杀 App 不发 onSnapshot）
   useEffect(() => {
@@ -302,6 +321,12 @@ export default function App() {
 
   const addSchedule = useCallback((draft: Omit<Schedule, 'id'>) => {
     Keyboard.dismiss();
+    // 用户刚表达了「要提醒」，这一刻弹授权最容易被接受；拿到权限后 bump 一次重排
+    if (draft.remind) {
+      void requestPermissionIfNeeded().then((state) => {
+        if (state === 'granted') bumpReminders();
+      });
+    }
     // 编辑分支：只覆盖草稿里的字段，id 和 completed 原样保留（改个标题不该把打卡记录清掉）
     if (editingId) {
       setSchedules((list) => list.map((s) => (s.id === editingId ? { ...s, ...draft } : s)));
@@ -318,7 +343,7 @@ export default function App() {
     // 保存后跳到该日程所在日期，能立刻看到它
     setJumpDate(parseDateKey(item.date));
     setPage('main');
-  }, [editingId]);
+  }, [editingId, bumpReminders]);
 
   const deleteSchedule = useCallback((id: string) => {
     setSchedules((list) => list.filter((s) => s.id !== id));
@@ -568,6 +593,8 @@ export default function App() {
             onBack={goBack}
             onOpenHistory={openHistory}
             scheduleCount={schedules.length}
+            visible={page === 'settings'}
+            onRemindersChanged={bumpReminders}
           />
         </SlideScreen>
 

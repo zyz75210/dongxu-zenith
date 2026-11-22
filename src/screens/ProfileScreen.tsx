@@ -24,7 +24,7 @@ const account: Group = {
   more: '查看全部',
   items: [
     { icon: 'person-outline', label: '个人资料', value: '已完善' },
-    { icon: 'notifications-outline', label: '提醒与通知', value: '开启' },
+    { icon: 'notifications-outline', label: '提醒与通知', value: '在设置中管理' },
     { icon: 'color-palette-outline', label: '外观主题', value: '清爽白' },
   ],
 };
