@@ -24,22 +24,13 @@ import ProfileEditScreen from './src/screens/ProfileEditScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
 import FeatureScreen from './src/screens/FeatureScreen';
+import TrainingScreen from './src/screens/TrainingScreen';
 
-// 四个功能页的配置
+// 三个尚未开发的功能页配置（训练页已经是真实页面，不再走这个占位模板）
 const featureConfig: Record<string, {
   title: string; en: string; desc: string; icon: string;
   features: { icon: string; text: string }[];
 }> = {
-  train: {
-    title: '训练', en: 'TRAINING',
-    desc: '把每日计划变成可执行的习惯，记录每一次坚持。',
-    icon: 'barbell-outline',
-    features: [
-      { icon: 'checkmark-circle-outline', text: '专注番茄钟与时间块记录' },
-      { icon: 'sparkles-outline', text: '每周训练目标与完成度回顾' },
-      { icon: 'calendar-outline', text: '连续坚持天数与成就徽章' },
-    ],
-  },
   planet: {
     title: '星球', en: 'PLANET',
     desc: '探索他人的时间规划方式，找到适合自己的节奏。',
@@ -528,13 +519,18 @@ export default function App() {
 
       {FEATURE_TABS.map((k) => (seenTab.current[k] ? (
         <View key={k} style={[styles.tabLayer, tab !== k && styles.tabHidden]}>
-          <FeatureScreen
-            title={featureConfig[k].title}
-            en={featureConfig[k].en}
-            desc={featureConfig[k].desc}
-            icon={featureConfig[k].icon}
-            features={featureConfig[k].features}
-          />
+          {k === 'train' ? (
+            // 训练页整屏固定，不滚动：一进来就是训练面板本身
+            <TrainingScreen />
+          ) : (
+            <FeatureScreen
+              title={featureConfig[k].title}
+              en={featureConfig[k].en}
+              desc={featureConfig[k].desc}
+              icon={featureConfig[k].icon}
+              features={featureConfig[k].features}
+            />
+          )}
         </View>
       ) : null))}
 
