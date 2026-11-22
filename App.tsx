@@ -587,6 +587,7 @@ export default function App() {
                 desc={featureConfig[k].desc}
                 icon={featureConfig[k].icon}
                 features={featureConfig[k].features}
+                onMore={pressSoon}
               />
             )}
           </TabPane>

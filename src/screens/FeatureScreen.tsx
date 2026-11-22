@@ -1,6 +1,7 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import HeaderCircle from '../components/HeaderCircle';
 import { C } from '../theme';
 
 type Props = {
@@ -9,9 +10,11 @@ type Props = {
   desc: string;
   icon: string;
   features: { icon: string; text: string }[];
+  /** 本页右上角「更多」：只关本页设置，禁止在这里跳去别的页面 */
+  onMore?: (label: string) => void;
 };
 
-export default function FeatureScreen({ title, en, desc, icon, features }: Props) {
+export default function FeatureScreen({ title, en, desc, icon, features, onMore }: Props) {
   return (
     <ScrollView
       style={styles.screen}
@@ -20,9 +23,11 @@ export default function FeatureScreen({ title, en, desc, icon, features }: Props
     >
       <View style={styles.header}>
         <Text style={styles.headerTitle}>{title}</Text>
-        <TouchableOpacity style={styles.circle} activeOpacity={0.7}>
-          <Ionicons name="ellipsis-horizontal" size={18} color={C.text} />
-        </TouchableOpacity>
+        <HeaderCircle
+          icon="ellipsis-horizontal"
+          label={`${title}更多`}
+          onPress={() => onMore?.(`${title}设置`)}
+        />
       </View>
 
       {/* 顶部大卡片 */}
@@ -60,10 +65,6 @@ const styles = StyleSheet.create({
   scroll: { backgroundColor: C.bg, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 30 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
   headerTitle: { fontSize: 20, fontWeight: '600', color: C.text },
-  circle: {
-    width: 34, height: 34, borderRadius: 17,
-    backgroundColor: C.soft, alignItems: 'center', justifyContent: 'center',
-  },
 
   hero: {
     backgroundColor: C.cardSoft, borderRadius: 18,
