@@ -75,7 +75,12 @@ export default function PickerSheet({
   });
 
   return (
-    <View style={styles.overlay} pointerEvents="box-none">
+    /*
+      收起过程中（mounted 还在、visible 已经是 false）不能再吃触摸：
+      万一淡出动画的回调没来，这层看不见的遮罩会一直盖在整屏上，
+      表现就是"整个 App 点哪都没反应"。用 visible 管住，比等回调可靠。
+    */
+    <View style={styles.overlay} pointerEvents={visible ? 'box-none' : 'none'}>
       {/* 遮罩 */}
       <Animated.View style={[styles.mask, { opacity: anim }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />

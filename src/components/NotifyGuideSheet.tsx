@@ -128,7 +128,12 @@ export default function NotifyGuideSheet({
   const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [HIDDEN_Y, 0] });
 
   return (
-    <View style={styles.root} pointerEvents="box-none">
+    /*
+      同上：收起过程中一律不吃触摸。这个面板还有一条"去系统设置"的路径 ——
+      点完 App 会切到后台，淡出动画很可能根本播不完，回调不回来就永远 mounted，
+      那层 opacity 0 的遮罩会一直挡着整屏。
+    */
+    <View style={styles.root} pointerEvents={visible ? 'box-none' : 'none'}>
       <Animated.View style={[styles.backdrop, { opacity: backdrop }]}>
         <TouchableOpacity style={styles.fill} activeOpacity={1} onPress={onClose} />
       </Animated.View>

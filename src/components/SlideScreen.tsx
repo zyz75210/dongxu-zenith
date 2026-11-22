@@ -18,14 +18,19 @@ type Props = {
 /**
  * 二级页面的容器 —— 只负责「在不在」和淡入淡出，模糊交给整屏的 FrostOverlay。
  *
- * ## 关键点：是否参与布局 = `visible || exiting`
+ * ## 关键点 1：是否参与布局 = `visible || exiting`
  * 这是个**纯派生值**，不靠动画回调去 setState 决定。
  * 之前是动画播完再 `setShown(false)`，快速来回切时「上一次的收尾回调」会晚一步到达，
  * 把刚打开的这一层收掉；而 visible 没再变，就没人把它装回来 —— 屏幕上只剩白底。
- * 现在只要 visible 为真，这一层就必定在布局里，收尾回调再晚也收不掉它。
  *
- * 入场是短淡入而不是直接给整页：起雾那几十毫秒里旧页面还在下面，
- * 新页面在雾里显影，换页那一下就被雾接住了。直接给整页等于"啪"地换张图。
+ * ## 关键点 2：透明度只由 `visible` 驱动，且必定收敛到 1
+ * 早先这里有一套 `pending / lastVisible` 的"待办动作"机制：渲染期记下该播进还是该播出，
+ * 交给 effect 消费。问题是**待办只消费一次** —— 万一 effect 因为任何原因多跑了一轮，
+ * 第二轮读到空待办就直接 return，既不播动画、也不装兜底定时器，
+ * 那一层就永远停在 opacity 0：视图挂上了、却完全透明。
+ * 表现出来就是"点了没反应"（新页面盖在上面但看不见），排查起来极难。
+ * 现在改成：`visible` 为真就无条件淡入 + 兜底置 1；为假才淡出。
+ * 这样"可见"这件事在结构上不可能失败。
  */
 export default function SlideScreen({
   visible, children, topInset = 0, bottomInset = 0,
@@ -35,29 +40,26 @@ export default function SlideScreen({
   /** 1 = 不透明 / 0 = 透明。首次就直接显示时不做淡入，避免开屏闪一下 */
   const fade = useRef(new Animated.Value(visible ? 1 : 0)).current;
 
-  /** 动画回调据此判断"是不是又打开了"，晚了的那一步就不会误伤 */
-  const want = useRef(visible);
-  const pending = useRef<'in' | 'out' | null>(null);
-  const lastVisible = useRef(visible);
+  /**
+   * 退场必须**在本次渲染就**留在布局里，不能等 effect —— effect 在提交之后才跑，
+   * 那一帧页面已经被 display:none 拿掉，看到的是"啪"地消失而不是淡出。
+   * 所以这一步用渲染期派生：刚变成不可见就标上 exiting，重新可见就撤销。
+   * （这里只是一次收敛的 flag 翻转，不涉及动画值，和之前的"待办动作"不是一回事）
+   */
+  const wasVisible = useRef(visible);
+  if (wasVisible.current !== visible) {
+    wasVisible.current = visible;
+    if (!visible) setExiting(true);
+    else if (exiting) setExiting(false);
+  }
 
   /** 派生：在不在布局里 */
   const mounted = visible || exiting;
 
-  if (visible !== lastVisible.current) {
-    lastVisible.current = visible;
-    pending.current = visible ? 'in' : 'out';
-    // 退场必须在本次渲染就留在布局里，不能等 effect —— 那会先硬切一下再淡出
-    if (!visible) setExiting(true);
-  }
-
   useEffect(() => {
-    const act = pending.current;
-    if (!act) return;
-    pending.current = null;
-    want.current = visible;
     fade.stopAnimation();
 
-    if (act === 'in') {
+    if (visible) {
       const anim = Animated.timing(fade, {
         toValue: 1,
         // 比起雾稍长一点：雾先盖住，页面再完全显影
@@ -66,15 +68,15 @@ export default function SlideScreen({
         useNativeDriver: true,
       });
       anim.start();
-      // 兜底：回调没来也必须停在完全不透明，绝不留半透明的一层
-      const guard = setTimeout(() => {
-        if (want.current) fade.setValue(1);
-      }, MOTION.paneIn + 200);
+      // 兜底：动画回调没来也必须停在完全不透明，绝不留半透明的一层
+      const guard = setTimeout(() => fade.setValue(1), MOTION.paneIn + 150);
       return () => {
         anim.stop();
         clearTimeout(guard);
       };
     }
+
+    if (!exiting) return undefined;
 
     const anim = Animated.timing(fade, {
       toValue: 0,
@@ -84,18 +86,20 @@ export default function SlideScreen({
     });
     anim.start(({ finished }) => {
       // 中途又被打开就不收：否则会留下一层看不见的玻璃挡在上面
-      if (finished && !want.current) setExiting(false);
+      if (finished && !visible) setExiting(false);
     });
     // 兜底收起，避免动画回调丢失后这层永远留在树上
     const guard = setTimeout(() => {
-      if (want.current) return;
+      if (visible) return;
       fade.setValue(0);
       setExiting(false);
-    }, MOTION.exit + 200);
+    }, MOTION.exit + 150);
     return () => {
       anim.stop();
       clearTimeout(guard);
     };
+    // exiting 只决定"要不要播淡出"，不需要进依赖：它和 visible=false 是同一次渲染设的
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, fade]);
 
   return (
