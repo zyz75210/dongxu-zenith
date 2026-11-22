@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Animated, AppState, BackHandler, Keyboard, Platform,
+  AppState, BackHandler, Keyboard, Platform,
   SafeAreaView, StatusBar, StyleSheet, View,
 } from 'react-native';
 import { C } from './src/theme';
+import { MOTION } from './src/motion';
 import { initialSchedules, initialProfile, Profile, Schedule } from './src/data';
 import { loadPersistedData, savePersistedData } from './src/storage';
 import {
@@ -15,6 +16,9 @@ import BottomNav, { TabKey } from './src/components/BottomNav';
 import DatePickerSheet from './src/components/DatePickerSheet';
 import TimePickerSheet from './src/components/TimePickerSheet';
 import SlideScreen from './src/components/SlideScreen';
+import TabPane from './src/components/TabPane';
+import FrostOverlay from './src/components/FrostOverlay';
+import { BlurTargetView } from 'expo-blur';
 import NotifyGuideSheet, { type GuideKind } from './src/components/NotifyGuideSheet';
 import Toast from './src/components/Toast';
 import CalendarScreen from './src/screens/CalendarScreen';
@@ -258,35 +262,6 @@ export default function App() {
   }, [schedules]);
 
   /**
-   * 预热开关：首屏稳定后，把四个二级页面逐个在屏幕外建好。
-   * 这样第一次点开时不用现建整页视图，滑入动画从第一帧就是顺的。
-   * 逐个错开执行，避免连续几帧都在创建视图反而把首屏拖住。
-   */
-  const [warm, setWarm] = useState({
-    detail: false, add: false, profile: false, profileEdit: false,
-    settings: false, history: false,
-  });
-  /** 延迟预热历史页的定时器（打开设置页时排一次） */
-  const preloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (preloadTimer.current) clearTimeout(preloadTimer.current);
-  }, []);
-  useEffect(() => {
-    // 等水合完成再排预热：否则读盘慢的机器上，前几个定时器会在首帧之前就烧完，
-    // 详情 / 添加两页全挤在首帧一起建，正好把水合省下来的时间又还回去。
-    if (!ready) return;
-    const order = ['detail', 'add', 'profile', 'profileEdit'] as const;
-    const timers = [
-      ...order.map((k, i) =>
-        setTimeout(() => setWarm((w) => (w[k] ? w : { ...w, [k]: true })), 200 + i * 130)),
-      // 齿轮是第一屏就有的入口，稍微晚一点预热，点开时不用现建整页
-      setTimeout(() => setWarm((w) => ({ ...w, settings: true })), 740),
-    ];
-    return () => timers.forEach(clearTimeout);
-    // 历史日程不预热：它要遍历全部日程建视图，留到真正点开时再建
-  }, [ready]);
-
-  /**
    * 详情页退场时条目可能已经被删掉（selected 变成 null），
    * 这里留一份最后一次的引用，让退场动画里还能看到原来的内容，不会白屏。
    */
@@ -304,18 +279,24 @@ export default function App() {
   const historyFrom = useRef<Page>('settings');
 
   /**
-   * 遮罩浓度：有二级页面盖上来时淡淡压暗一层，形成前后层次。
-   * 只动一个纯色视图的透明度，不缩放主界面 —— 整页 scale 每帧都要重绘，太贵。
+   * 二级页面是否盖在主界面上：只用来决定主界面吃不吃触摸，不做视觉。
+   * 原来这里还有一层"开页面时把主界面压暗"的遮罩动画 —— 它和页面的淡入是两条
+   * 独立曲线，叠在一起就成了背景亮度忽明忽暗的第二个来源，已经去掉。
    */
-  const dim = useRef(new Animated.Value(0)).current;
   const onMain = page === 'main';
-  useEffect(() => {
-    Animated.timing(dim, {
-      toValue: onMain ? 0 : 1,
-      duration: onMain ? 220 : 260,
-      useNativeDriver: true,
-    }).start();
-  }, [onMain, dim]);
+
+  /**
+   * 整屏起雾：全 App 唯一的转场动画，由「页面 + tab」这个组合值驱动。
+   * 进了 / 出了二级页面 = 一次完整转场；只切 tab = 短一档，而且要让开底部菜单栏。
+   */
+  const frostTarget = useRef<React.ComponentRef<typeof View> | null>(null);
+  const navSig = `${page}|${tab}`;
+  const prevPage = useRef(page);
+  const pageChanged = prevPage.current !== page;
+  prevPage.current = page;
+
+  /** 底部菜单栏的高度：切 tab 时模糊层要停在它上面，菜单栏不参与转场 */
+  const [navH, setNavH] = useState(0);
 
   // 安卓返回键：二级页面退回上一层，不要直接退出 App
   const goBack = useCallback(() => {
@@ -484,12 +465,6 @@ export default function App() {
   }, []);
   const openSettings = useCallback(() => {
     setPage('settings');
-    // 设置页滑入之后再在屏幕外把历史页建好：等用户点"历史日程"时就是瞬间打开。
-    // 放到 420ms 后，避开设置页转场那几帧。
-    if (preloadTimer.current) clearTimeout(preloadTimer.current);
-    preloadTimer.current = setTimeout(() => {
-      setWarm((w) => (w.history ? w : { ...w, history: true }));
-    }, 420);
   }, []);
   // 设置页里进历史：返回时回到设置
   const openHistory = useCallback(() => {
@@ -541,7 +516,7 @@ export default function App() {
   }, []);
 
   /**
-   * 已经打开过的 tab 一直留在视图树上，未选中的用 display:none 藏起来。
+   * 已经打开过的 tab 一直留在视图树上，未选中的藏起来（TabPane 内部 display:none）。
    * 之前切 tab 是"卸载一页 + 挂载另一页"：日历页光日期格就有 120 多个视图，
    * 重建整棵树的那几帧正好和底部导航的液体滑块动画抢同一个 UI 线程，
    * 看起来就是"点了之后先顿一下再滑"。常驻之后切 tab 几乎零成本。
@@ -552,40 +527,50 @@ export default function App() {
   // 主界面：底部导航 + 当前 tab 页面
   const renderMain = () => (
     <>
-      <View style={[styles.tabLayer, tab !== 'calendar' && styles.tabHidden]}>
-        <CalendarScreen
-          schedules={schedules}
-          initialDate={jumpDate}
-          onOpenProfile={openProfile}
-          onOpenAdd={openAdd}
-          onOpenDetail={openDetail}
-          onOpenPicker={openPicker}
-          onSelectDate={handleSelectDate}
-          onToggleComplete={toggleComplete}
-          onOpenSettings={openSettings}
-          onOpenHistory={openHistoryFromMain}
-          avatar={profile.avatar}
-        />
+      {/* tab 舞台：所有页面叠在同一个格子里，显示 / 隐藏 / 转场都交给 TabPane */}
+      <View style={styles.tabStage}>
+        <TabPane active={tab === 'calendar'}>
+          <CalendarScreen
+            schedules={schedules}
+            initialDate={jumpDate}
+            onOpenProfile={openProfile}
+            onOpenAdd={openAdd}
+            onOpenDetail={openDetail}
+            onOpenPicker={openPicker}
+            onSelectDate={handleSelectDate}
+            onToggleComplete={toggleComplete}
+            onOpenSettings={openSettings}
+            onOpenHistory={openHistoryFromMain}
+            avatar={profile.avatar}
+          />
+        </TabPane>
+
+        {FEATURE_TABS.map((k) => (seenTab.current[k] ? (
+          <TabPane key={k} active={tab === k}>
+            {k === 'train' ? (
+              // 训练页整屏固定，不滚动：一进来就是训练面板本身
+              <TrainingScreen />
+            ) : (
+              <FeatureScreen
+                title={featureConfig[k].title}
+                en={featureConfig[k].en}
+                desc={featureConfig[k].desc}
+                icon={featureConfig[k].icon}
+                features={featureConfig[k].features}
+              />
+            )}
+          </TabPane>
+        ) : null))}
       </View>
 
-      {FEATURE_TABS.map((k) => (seenTab.current[k] ? (
-        <View key={k} style={[styles.tabLayer, tab !== k && styles.tabHidden]}>
-          {k === 'train' ? (
-            // 训练页整屏固定，不滚动：一进来就是训练面板本身
-            <TrainingScreen />
-          ) : (
-            <FeatureScreen
-              title={featureConfig[k].title}
-              en={featureConfig[k].en}
-              desc={featureConfig[k].desc}
-              icon={featureConfig[k].icon}
-              features={featureConfig[k].features}
-            />
-          )}
-        </View>
-      ) : null))}
-
-      <BottomNav active={tab} onChange={setTab} />
+      {/* 包一层只为量高度：切 tab 时模糊层要让开菜单栏，不让它跟着糊 */}
+      <View onLayout={(e) => {
+        const h = Math.round(e.nativeEvent.layout.height);
+        setNavH((prev) => (prev === h ? prev : h));
+      }}
+      >
+        <BottomNav active={tab} onChange={setTab} />
+      </View>
     </>
   );
 
@@ -605,112 +590,126 @@ export default function App() {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" />
-      <SafeAreaView style={[styles.safe, { paddingTop: topInset, paddingBottom: bottomInset }]}>
-        {/* 主界面常驻底层，不参与动画：位移/缩放整页在安卓上会拖慢帧率 */}
-        <View style={styles.layer} pointerEvents={onMain ? 'auto' : 'none'}>
-          {renderMain()}
-        </View>
 
-        {/* 层次遮罩：只淡入一个纯色层，开销极小 */}
-        <Animated.View
-          pointerEvents="none"
-          style={[styles.scrim, { opacity: dim }]}
-        />
+      {/*
+        整屏内容层 = 模糊的取样目标。主界面、二级页面、两条栏都在这里面，
+        所以起雾时屏幕上不会有任何一块"没跟上"。
+      */}
+      <BlurTargetView ref={frostTarget} collapsable={false} style={styles.frost}>
+        <SafeAreaView style={[styles.safe, { paddingTop: topInset, paddingBottom: bottomInset }]}>
+          {/* 主界面常驻底层，不参与动画：位移/缩放整页在安卓上会拖慢帧率 */}
+          <View style={styles.layer} pointerEvents={onMain ? 'auto' : 'none'}>
+            {renderMain()}
+          </View>
+        </SafeAreaView>
 
-        {/* 我的：进资料编辑时保持可见，编辑页从右侧盖在它上面 */}
-        <SlideScreen
-          visible={page === 'profile' || page === 'profileEdit'}
-          preload={warm.profile}
-          topInset={topInset}
-          bottomInset={bottomInset}
-        >
-          <ProfileScreen profile={profile} onEditProfile={openProfileEdit} stats={profileStats} />
-          <BottomNav active={tab} onChange={tabFromProfile} />
-        </SlideScreen>
+        {/*
+          转场层必须放在 SafeAreaView 外面。
+          放在里面会被它的内边距框住：状态栏那一条（topInset 高）拿不到过渡，
+          转场时顶部会留一条"没跟上"的硬边。放在整屏层就一定是盖满的。
+        */}
+          {/* 我的：进资料编辑时保持可见，编辑页盖在它上面（这里只换谁在上层，没有位移） */}
+          <SlideScreen
+            visible={page === 'profile' || page === 'profileEdit'}
+            topInset={topInset}
+            bottomInset={bottomInset}
+          >
+            <ProfileScreen profile={profile} onEditProfile={openProfileEdit} stats={profileStats} />
+            <BottomNav active={tab} onChange={tabFromProfile} />
+          </SlideScreen>
 
-        <SlideScreen
-          visible={page === 'profileEdit'}
-          preload={warm.profileEdit}
-          topInset={topInset}
-          bottomInset={bottomInset}
-        >
-          <ProfileEditScreen
-            profile={profile}
+          <SlideScreen
             visible={page === 'profileEdit'}
-            onClose={backToProfile}
-            onSave={saveProfile}
-            onOpenDate={openPicker}
-          />
-        </SlideScreen>
+            topInset={topInset}
+            bottomInset={bottomInset}
+          >
+            <ProfileEditScreen
+              profile={profile}
+              visible={page === 'profileEdit'}
+              onClose={backToProfile}
+              onSave={saveProfile}
+              onOpenDate={openPicker}
+            />
+          </SlideScreen>
 
-        {/* 设置：齿轮入口 */}
-        <SlideScreen
-          visible={page === 'settings'}
-          preload={warm.settings}
-          topInset={topInset}
-          bottomInset={bottomInset}
-        >
-          <SettingsScreen
-            onBack={goBack}
-            onOpenHistory={openHistory}
-            scheduleCount={schedules.length}
+          {/* 设置：齿轮入口 */}
+          <SlideScreen
             visible={page === 'settings'}
-            onRemindersChanged={bumpReminders}
-            onShowNotifyGuide={setGuide}
-          />
-        </SlideScreen>
+            topInset={topInset}
+            bottomInset={bottomInset}
+          >
+            <SettingsScreen
+              onBack={goBack}
+              onOpenHistory={openHistory}
+              scheduleCount={schedules.length}
+              visible={page === 'settings'}
+              onRemindersChanged={bumpReminders}
+              onShowNotifyGuide={setGuide}
+            />
+          </SlideScreen>
 
-        {/* 历史日程：按月 / 按天折叠，可批量删除 */}
-        <SlideScreen
-          visible={page === 'history'}
-          preload={warm.history}
-          topInset={topInset}
-          bottomInset={bottomInset}
-        >
-          <HistoryScreen
-            schedules={schedules}
+          {/* 历史日程：按月 / 按天折叠，可批量删除 */}
+          <SlideScreen
             visible={page === 'history'}
-            onBack={goBack}
-            onOpenDetail={openHistoryDetail}
-            onToggleComplete={toggleComplete}
-            onDeleteMany={deleteSchedules}
-          />
-        </SlideScreen>
+            topInset={topInset}
+            bottomInset={bottomInset}
+          >
+            <HistoryScreen
+              schedules={schedules}
+              visible={page === 'history'}
+              onBack={goBack}
+              onOpenDetail={openHistoryDetail}
+              onToggleComplete={toggleComplete}
+              onDeleteMany={deleteSchedules}
+            />
+          </SlideScreen>
 
-        {/* 日程详情：从右侧推入。放在设置/历史之上，从历史里点开时详情才能顺滑盖上去 */}
-        <SlideScreen
-          visible={page === 'detail'}
-          preload={warm.detail}
-          topInset={topInset}
-          bottomInset={bottomInset}
-        >
-          <DetailScreen
-            item={detailItem ?? WARM_ITEM}
-            onBack={backFromDetail}
-            onEdit={openEdit}
-            onDelete={deleteSchedule}
-            onToggleComplete={toggleComplete}
-          />
-        </SlideScreen>
+          {/* 日程详情：放在设置/历史之上，从历史里点开时详情盖上去才不打架 */}
+          <SlideScreen
+            visible={page === 'detail'}
+            topInset={topInset}
+            bottomInset={bottomInset}
+          >
+            <DetailScreen
+              item={detailItem ?? WARM_ITEM}
+              onBack={backFromDetail}
+              onEdit={openEdit}
+              onDelete={deleteSchedule}
+              onToggleComplete={toggleComplete}
+            />
+          </SlideScreen>
 
-        {/* 添加日程：和详情、我的统一从右侧推入，方向一致更符合直觉 */}
-        <SlideScreen
-          visible={page === 'add'}
-          preload={warm.add}
-          topInset={topInset}
-          bottomInset={bottomInset}
-        >
-          <AddScheduleScreen
+          {/* 添加日程：层级与详情、我的一致，同样只做对焦出场 */}
+          <SlideScreen
             visible={page === 'add'}
-            onClose={closeAdd}
-            initialDate={addDate}
-            editItem={editItem}
-            onOpenDate={openPicker}
-            onOpenTime={openTimePicker}
-            onSave={addSchedule}
-          />
-        </SlideScreen>
-      </SafeAreaView>
+            topInset={topInset}
+            bottomInset={bottomInset}
+          >
+            <AddScheduleScreen
+              visible={page === 'add'}
+              onClose={closeAdd}
+              initialDate={addDate}
+              editItem={editItem}
+              onOpenDate={openPicker}
+              onOpenTime={openTimePicker}
+              onSave={addSchedule}
+            />
+          </SlideScreen>
+      </BlurTargetView>
+
+      {/*
+        全 App 唯一的转场动画：起雾 → 对焦。
+        盖在内容之上、所有浮层之下，所以状态栏那条和底部菜单栏也会一起起雾。
+      */}
+      <FrostOverlay
+        targetRef={frostTarget}
+        trigger={navSig}
+        fog={pageChanged ? MOTION.fog : MOTION.tabFog}
+        focus={pageChanged ? MOTION.enter : MOTION.tab}
+        // 压暗永远盖整屏（菜单栏也一起暗），但模糊只到菜单栏上沿；
+        // 进出二级页面时菜单栏本来就被页面盖住，整屏一起糊也没关系
+        clipBottom={pageChanged ? 0 : navH + bottomInset}
+      />
 
       {/* 日期选择浮层：整屏覆盖，层级高于底部导航 */}
       <DatePickerSheet
@@ -762,11 +761,8 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   safe: { flex: 1, backgroundColor: C.bg },
   layer: { flex: 1, backgroundColor: C.bg },
-  // 每个 tab 一层容器：未选中的整层藏掉（display:none 只是不参与布局/绘制，视图树还在）
-  tabLayer: { flex: 1, backgroundColor: C.bg },
-  tabHidden: { display: 'none' },
-  scrim: {
-    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(15,20,34,0.20)',
-  },
+  // 整屏内容层：模糊取样的目标，必须自带底色，否则糊出来是透明而不是"糊了的页面"
+  frost: { flex: 1, backgroundColor: C.bg },
+  // tab 舞台：所有 tab 页绝对定位叠在这里，BottomNav 单独占底部
+  tabStage: { flex: 1, backgroundColor: C.bg },
 });

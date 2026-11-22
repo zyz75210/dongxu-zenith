@@ -1,20 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, SafeAreaView, StyleSheet, useWindowDimensions } from 'react-native';
+import { Animated, SafeAreaView, StyleSheet, View } from 'react-native';
 import { C } from '../theme';
+import { MOTION } from '../motion';
 
 type Props = {
-  /** 是否显示：true 滑入，false 滑出（滑出后不卸载，停在屏幕外等着下次滑入） */
+  /** 是否显示：转场由整屏的 FrostOverlay 负责，这里只管进出与生命周期 */
   visible: boolean;
-  /**
-   * 预热：还没打开过就先在屏幕外把视图树建好。
-   * 打开时只剩一次位移，不用在动画首帧现建整页，安卓上就不会卡一下。
-   */
-  preload?: boolean;
   children: React.ReactNode;
-  /** 入场方向：right = 从右侧推入（默认）；bottom = 从底部升起 */
-  from?: 'right' | 'bottom';
   /**
-   * 安全区留白：绝对定位的浮层不会继承父级 SafeAreaView 的 padding，
+   * 安全区留白：这一层是绝对定位的整屏层，吃不到外层 SafeAreaView 的内边距，
    * 必须自己补一份，否则标题会顶到状态栏上。
    */
   topInset?: number;
@@ -22,79 +16,107 @@ type Props = {
 };
 
 /**
- * 只做位移的转场容器 —— 刻意不加 opacity / scale / 阴影动画：
- * 这些属性在安卓上会触发离屏合成与整层重绘，是掉帧的主因。
- * 单纯 translate 由 native driver 交给 GPU 做矩阵变换，稳定 60fps。
+ * 二级页面的容器 —— 只负责「在不在」和淡入淡出，模糊交给整屏的 FrostOverlay。
+ *
+ * ## 关键点：是否参与布局 = `visible || exiting`
+ * 这是个**纯派生值**，不靠动画回调去 setState 决定。
+ * 之前是动画播完再 `setShown(false)`，快速来回切时「上一次的收尾回调」会晚一步到达，
+ * 把刚打开的这一层收掉；而 visible 没再变，就没人把它装回来 —— 屏幕上只剩白底。
+ * 现在只要 visible 为真，这一层就必定在布局里，收尾回调再晚也收不掉它。
+ *
+ * 入场是短淡入而不是直接给整页：起雾那几十毫秒里旧页面还在下面，
+ * 新页面在雾里显影，换页那一下就被雾接住了。直接给整页等于"啪"地换张图。
  */
-const IN_MS = 250;
-const OUT_MS = 200;
-const EASE_IN = Easing.bezier(0.2, 0.72, 0.3, 1);
-const EASE_OUT = Easing.bezier(0.4, 0, 0.75, 0.5);
-
 export default function SlideScreen({
-  visible, preload = false, children, from = 'right', topInset = 0, bottomInset = 0,
+  visible, children, topInset = 0, bottomInset = 0,
 }: Props) {
-  const { width, height } = useWindowDimensions();
-  const dist = from === 'right' ? width : height;
+  /** 正在退场：为真时即使 visible 已经变假，也要留在布局里把淡出播完 */
+  const [exiting, setExiting] = useState(false);
+  /** 1 = 不透明 / 0 = 透明。首次就直接显示时不做淡入，避免开屏闪一下 */
+  const fade = useRef(new Animated.Value(visible ? 1 : 0)).current;
 
-  // 0 → 1
-  const progress = useRef(new Animated.Value(0)).current;
+  /** 动画回调据此判断"是不是又打开了"，晚了的那一步就不会误伤 */
+  const want = useRef(visible);
+  const pending = useRef<'in' | 'out' | null>(null);
+  const lastVisible = useRef(visible);
 
-  /**
-   * 挂载后一直保留（不再在退场结束时卸载）。
-   * 页面重新挂载 = 重新创建整棵原生视图树（Yoga 布局 + 逐个 view 创建），
-   * 这一段正好落在动画首帧上，就是"点开时卡一下"的来源。
-   * 留在内存里的代价只是一棵不参与绘制（已经平移到屏幕外）的视图树。
-   */
-  const [mounted, setMounted] = useState(visible || preload);
-  if ((visible || preload) && !mounted) setMounted(true);
+  /** 派生：在不在布局里 */
+  const mounted = visible || exiting;
 
-  // 只有"可见性真正变化"时才播动画：预热挂载时不要空跑一次
-  const prevVisible = useRef(false);
+  if (visible !== lastVisible.current) {
+    lastVisible.current = visible;
+    pending.current = visible ? 'in' : 'out';
+    // 退场必须在本次渲染就留在布局里，不能等 effect —— 那会先硬切一下再淡出
+    if (!visible) setExiting(true);
+  }
+
   useEffect(() => {
-    if (!mounted) return;
-    if (visible === prevVisible.current) return;
-    prevVisible.current = visible;
+    const act = pending.current;
+    if (!act) return;
+    pending.current = null;
+    want.current = visible;
+    fade.stopAnimation();
 
-    Animated.timing(progress, {
-      toValue: visible ? 1 : 0,
-      duration: visible ? IN_MS : OUT_MS,
-      easing: visible ? EASE_IN : EASE_OUT,
+    if (act === 'in') {
+      const anim = Animated.timing(fade, {
+        toValue: 1,
+        // 比起雾稍长一点：雾先盖住，页面再完全显影
+        duration: MOTION.paneIn,
+        easing: MOTION.easeFade,
+        useNativeDriver: true,
+      });
+      anim.start();
+      // 兜底：回调没来也必须停在完全不透明，绝不留半透明的一层
+      const guard = setTimeout(() => {
+        if (want.current) fade.setValue(1);
+      }, MOTION.paneIn + 200);
+      return () => {
+        anim.stop();
+        clearTimeout(guard);
+      };
+    }
+
+    const anim = Animated.timing(fade, {
+      toValue: 0,
+      duration: MOTION.exit,
+      easing: MOTION.easeFade,
       useNativeDriver: true,
-    }).start();
-  }, [visible, mounted, progress]);
-
-  if (!mounted) return null;
-
-  const translate =
-    from === 'right'
-      ? { translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [dist, 0] }) }
-      : { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [dist, 0] }) };
+    });
+    anim.start(({ finished }) => {
+      // 中途又被打开就不收：否则会留下一层看不见的玻璃挡在上面
+      if (finished && !want.current) setExiting(false);
+    });
+    // 兜底收起，避免动画回调丢失后这层永远留在树上
+    const guard = setTimeout(() => {
+      if (want.current) return;
+      fade.setValue(0);
+      setExiting(false);
+    }, MOTION.exit + 200);
+    return () => {
+      anim.stop();
+      clearTimeout(guard);
+    };
+  }, [visible, fade]);
 
   return (
     <Animated.View
-      // 停在屏幕外时不吃触摸、也不进无障碍树，避免盖住底层页面
+      // 隐藏时不吃触摸、也不进无障碍树，避免盖住底层页面
       pointerEvents={visible ? 'auto' : 'none'}
       accessibilityElementsHidden={!visible}
       importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
-      style={[
-        StyleSheet.absoluteFill,
-        styles.screen,
-        from === 'right' ? styles.edgeX : styles.edgeY,
-        // 安卓：这里补状态栏留白（SafeAreaView 在安卓无效）
-        { paddingTop: topInset, paddingBottom: bottomInset, transform: [translate] },
-      ]}
+      style={[StyleSheet.absoluteFill, styles.screen, { opacity: fade }, !mounted && styles.gone]}
     >
-      {/* iOS：绝对定位同样吃不到外层 SafeAreaView 的内边距，这里再套一层兜住刘海 */}
-      <SafeAreaView style={styles.inner}>{children}</SafeAreaView>
+      <View style={[styles.fill, { paddingTop: topInset, paddingBottom: bottomInset }]}>
+        {/* iOS：绝对定位同样吃不到外层 SafeAreaView 的内边距，这里再套一层兜住刘海 */}
+        <SafeAreaView style={styles.fill}>{children}</SafeAreaView>
+      </View>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { backgroundColor: C.bg },
-  inner: { flex: 1 },
-  // 用 1px 描边代替阴影：阴影是整屏模糊绘制，开销远大于一条线
-  edgeX: { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: 'rgba(18,24,38,0.10)' },
-  edgeY: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(18,24,38,0.10)' },
+  // 不在场：从布局里整层拿掉（不绘制、不参与命中测试），视图树仍然留着
+  gone: { display: 'none' },
+  fill: { flex: 1, backgroundColor: C.bg },
 });
