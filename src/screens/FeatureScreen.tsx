@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import HeaderCircle from '../components/HeaderCircle';
@@ -14,7 +14,7 @@ type Props = {
   onMore?: (label: string) => void;
 };
 
-export default function FeatureScreen({ title, en, desc, icon, features, onMore }: Props) {
+function FeatureScreen({ title, en, desc, icon, features, onMore }: Props) {
   return (
     <ScrollView
       style={styles.screen}
@@ -100,3 +100,6 @@ const styles = StyleSheet.create({
   },
   comingSoonText: { fontSize: 11, color: C.gray },
 });
+
+/** memo：占位页也常驻 tab 舞台，props 全是模块级常量 + 稳定回调，没必要跟着父级重渲染 */
+export default memo(FeatureScreen);

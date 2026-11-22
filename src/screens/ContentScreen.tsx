@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import {
   ScrollView, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
@@ -18,7 +18,7 @@ type Props = {
 /** 阶梯条：按段位状态上色，越往后越高，一眼能看出难度在往上走 */
 const ZONE_TAGS = ['基础', '步伐', '多摇'];
 
-export default function ContentScreen({ stats, onOpenMap, onSoon }: Props) {
+function ContentScreen({ stats, onOpenMap, onSoon }: Props) {
   const total = STAGES.length;
   const states = stageStates(stats);
   const litCount = stats.filter(isLit).length;
@@ -230,3 +230,6 @@ const styles = StyleSheet.create({
 
   future: { height: 26 },
 });
+
+/** memo：常驻 tab 页，props（stats / onOpenMap / onSoon）都是稳定引用，父级重渲染时整页可以跳过 */
+export default memo(ContentScreen);

@@ -65,8 +65,8 @@ type Page =
 const FEATURE_TABS: TabKey[] = ['train', 'planet', 'content', 'growth'];
 
 /**
- * 详情页预热用的占位数据：只在屏幕外建视图树时用到，用户看不到。
- * 有了它，第一次点开日程时详情页不需要再新建整棵视图树。
+ * 详情页的兜底数据：只在「已经进了详情页但条目刚好没了」时用（删除 / 退场动画那一瞬），
+ * 用户看不到。页面本身不再预热 —— 现在首次打开才建视图树（见 SlideScreen 的 `seen`）。
  */
 const WARM_ITEM: Schedule = {
   id: '__warm__', date: '2026-01-01', title: '',

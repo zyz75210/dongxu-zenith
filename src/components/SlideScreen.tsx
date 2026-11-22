@@ -41,6 +41,22 @@ export default function SlideScreen({
   const fade = useRef(new Animated.Value(visible ? 1 : 0)).current;
 
   /**
+   * 这一层有没有「露过面」。首次可见之前不建子视图树。
+   *
+   * 之前是启动就把 8 个二级页全建出来、只用 display:none 藏着：不绘制，但
+   * 每一页的 render 都要在首帧前跑一遍，视图（ShadowNode）也真的分配了 ——
+   * 段位地图、历史日程这种几百个节点的大页，用户可能一次都不会打开，白占启动时间和内存。
+   * 现在改成首次 visible 才建，之后和原来一样常驻（切走只是 display:none，不卸载）。
+   *
+   * 不会因此变卡：建树发生在 visible 变真的那一帧，而这一帧正好被整屏起雾盖着，
+   * 起雾 / 对焦全是 native driver，JS 线程忙这一下不影响动画本身。
+   * 只有一点前提：子组件不能依赖「自己一直挂着」—— 需要初始化就在 effect 里判 visible，
+   * 别用 prevVisible 的初始值推（那三个页面都已经按这个写法来）。
+   */
+  const seen = useRef(visible);
+  if (visible) seen.current = true;
+
+  /**
    * 退场必须**在本次渲染就**留在布局里，不能等 effect —— effect 在提交之后才跑，
    * 那一帧页面已经被 display:none 拿掉，看到的是"啪"地消失而不是淡出。
    * 所以这一步用渲染期派生：刚变成不可见就标上 exiting，重新可见就撤销。
@@ -112,7 +128,7 @@ export default function SlideScreen({
     >
       <View style={[styles.fill, { paddingTop: topInset, paddingBottom: bottomInset }]}>
         {/* iOS：绝对定位同样吃不到外层 SafeAreaView 的内边距，这里再套一层兜住刘海 */}
-        <SafeAreaView style={styles.fill}>{children}</SafeAreaView>
+        <SafeAreaView style={styles.fill}>{seen.current ? children : null}</SafeAreaView>
       </View>
     </Animated.View>
   );

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import {
   ScrollView, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
@@ -138,7 +138,7 @@ const WIDGETS: Widget[] = [
   },
 ];
 
-export default function GrowthScreen({ onSoon }: Props) {
+function GrowthScreen({ onSoon }: Props) {
   return (
     <ScrollView
       style={styles.screen}
@@ -506,3 +506,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 2, borderTopRightRadius: 2,
   },
 });
+
+/** memo：常驻 tab 页，props 只有 onSoon（稳定引用），父级重渲染时整页可以跳过 */
+export default memo(GrowthScreen);

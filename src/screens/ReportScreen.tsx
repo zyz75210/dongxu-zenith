@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { memo, useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Svg, { Circle } from 'react-native-svg';
@@ -31,7 +31,7 @@ type Props = {
  * 分母如果掺进空白日，完成率会常年是个位数，数字就没有参考价值了。
  * 所以这里的完成率 = 该月已完成的日程数 / 该月日程总数。
  */
-export default function ReportScreen({ schedules, visible, onBack }: Props) {
+function ReportScreen({ schedules, visible, onBack }: Props) {
   const today = useMemo(() => new Date(), []);
   const [ym, setYm] = useState({ y: today.getFullYear(), m: today.getMonth() });
 
@@ -272,3 +272,6 @@ const styles = StyleSheet.create({
 
   footnote: { fontSize: 10, color: '#B9BFCA', marginTop: 22, lineHeight: 16 },
 });
+
+/** memo：报告页只在打开时才有意义，别让 App 侧的轻提示 / 面板开关带着它一起重算月份统计 */
+export default memo(ReportScreen);

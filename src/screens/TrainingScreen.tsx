@@ -81,7 +81,7 @@ type Props = {
   onEditDuration: (current: number, onPick: (total: number) => void) => void;
 };
 
-export default function TrainingScreen({ onEditDuration }: Props) {
+function TrainingScreen({ onEditDuration }: Props) {
   const { height } = useWindowDimensions();
   // 小屏（< 730dp）压一压字号与间距，保证整页在不需要滚动的前提下放得下
   const compact = height < 730;
@@ -416,3 +416,10 @@ const styles = StyleSheet.create({
   },
   hintText: { fontSize: 11, color: C.white, lineHeight: 16 },
 });
+
+/**
+ * memo：这一页在 tab 舞台上常驻，父级（App）任何状态变化都会让它重渲染 ——
+ * 弹一次轻提示、开关时长面板、量到导航栏高度，全都会。它的 props 只有 onEditDuration，
+ * 是 App 里 useCallback 固定住的，所以整页可以整块跳过。
+ */
+export default memo(TrainingScreen);

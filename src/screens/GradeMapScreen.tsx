@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { memo, useMemo, useState } from 'react';
 import {
   Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
@@ -29,7 +29,7 @@ const fmt = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 /** 分区配色：进阶区用深一档的蓝，高阶区压到 55% —— 与设计稿 z1/z2/z3 一致 */
 const zoneColor = (z: number) => (z === 2 ? BLUE_DEEP : BLUE);
 
-export default function GradeMapScreen({ done, onToggle, onBack }: Props) {
+function GradeMapScreen({ done, onToggle, onBack }: Props) {
   const stats = useMemo(() => stageStats(done), [done]);
   const states = useMemo(() => stageStates(stats), [stats]);
   const totals = useMemo(() => gradeTotals(stats), [stats]);
@@ -692,3 +692,10 @@ const styles = StyleSheet.create({
   markText: { fontSize: 14, fontWeight: '700', color: C.white },
   markTextDone: { color: BLUE },
 });
+
+/**
+ * memo：这一页节点最多（九段 × 十个动作），又常驻在转场层里 ——
+ * 不包 memo 的话，App 侧任何状态变化（轻提示、面板开关、导航栏高度）都会让它整套重算重渲染。
+ * props 里 done 是 Set、由 App useMemo 产出，onToggle / onBack 都是稳定引用。
+ */
+export default memo(GradeMapScreen);
