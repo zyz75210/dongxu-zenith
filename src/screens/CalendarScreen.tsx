@@ -748,6 +748,12 @@ function CalendarScreen({
     sub?: string;
     /** 有值就表示「这一档用自绘火焰」，值即轮廓形态；其余状态仍用 Ionicons */
     flame?: 'solid' | 'linear';
+    /**
+     * 第一次来：一条日程记录都没有（新用户，或把历史删光了）。
+     * 这种时候右侧那句「排一条」太省事、也不像在对人说话，
+     * 换成一句更主动的邀请 —— 一个刚打开 App 的人，需要的是被招呼一声。
+     */
+    firstVisit?: boolean;
   } => {
     const total = daySchedules.length;
     const doneCount = daySchedules.filter((s) => isFinished(s, todayKey)).length;
@@ -823,6 +829,7 @@ function CalendarScreen({
     return {
       icon: 'flame-outline', color: C.gray, flame: 'linear',
       text: hasRecord ? '今天还没排' : '第一次来？',
+      firstVisit: !hasRecord,
     };
   }, [daySchedules, statsBar, hasRecord]);
 
@@ -1259,7 +1266,27 @@ function CalendarScreen({
           </View>
 
           <View style={styles.statsRight}>
-            {statsBar.weekTotal === 0 ? (
+            {leftView.firstVisit ? (
+              /*
+                第一次来：左边问「第一次来？」，右边给一句能点的回应。
+                不用「排一条」那种省事说法 —— 刚打开 App 的人需要被招呼一声，
+                而不是被指派一个任务。右侧带 › 是这页的约定：有箭头的都能点。
+              */
+              <TouchableOpacity
+                style={styles.statsWeekRow}
+                activeOpacity={0.6}
+                onPress={onOpenAdd}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Text style={styles.statsEmpty} numberOfLines={1}>想安排运动就点我</Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={12}
+                  color={C.gray}
+                  style={styles.statsWeekCaret}
+                />
+              </TouchableOpacity>
+            ) : statsBar.weekTotal === 0 ? (
               // 这一周没有训练安排：先看有没有排休息（排了就不是「没安排」）
               statsBar.weekRest > 0 ? (
                 <Text style={styles.statsEmpty}>
