@@ -63,6 +63,16 @@ const SUBS = [
   '一百天，这事儿你拿下了',
 ];
 
+/**
+ * 数字用的同色阶（和 COLORS 一一对应，色相不变、明度压深）。
+ * 火焰是小图标，浅一点没关系；「12」是 22px 粗体，直接用 #FFB067 会糊在浅灰底上，
+ * 所以另起一列：既跟着阶位变色，又保证大字号下仍然读得清。
+ */
+const TEXT_COLORS = [
+  '#C96A18', '#C25F14', '#B85511', '#AE4C0E', '#A4450C',
+  '#9A3E0D', '#90360E', '#852E0C', '#79270B', '#6E2109', '#631B07',
+];
+
 const GRAY = '#C4C9D2';
 
 /** 连续天数落在第几阶（0 起，封顶 STREAK_MAX_TIER） */
@@ -75,9 +85,14 @@ export function streakSub(streak: number): string {
   return SUBS[streakTier(streak)];
 }
 
-/** 该阶对应的火焰色，供别的页面（比如「我的」的连续天数）取同一个色 */
+/** 该阶对应的火焰色 */
 export function streakColor(streak: number): string {
   return COLORS[streakTier(streak)];
+}
+
+/** 该阶对应的数字色：和火焰同阶同色相，明度压深一档，保证 22px 粗体可读 */
+export function streakTextColor(streak: number): string {
+  return TEXT_COLORS[streakTier(streak)];
 }
 
 type Props = {

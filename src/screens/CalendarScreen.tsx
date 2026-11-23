@@ -13,7 +13,7 @@ import {
   timeToMinutes, weekdayIndex,
 } from '../utils/date';
 import ScheduleCapsule, { TYPE_NAME } from '../components/ScheduleCapsule';
-import StreakFlame, { streakSub } from '../components/StreakFlame';
+import StreakFlame, { streakSub, streakTextColor } from '../components/StreakFlame';
 
 type Props = {
   /** 全部日程（本页按选中日期过滤并排序） */
@@ -713,6 +713,8 @@ function CalendarScreen({
     color: string;
     prefix?: string;
     num?: string;
+    /** 数字颜色：只有「已坚持 N 天」跟着火焰阶位变色，其余状态用默认正文色 */
+    numColor?: string;
     unit?: string;
     text?: string;
     sub: string;
@@ -765,6 +767,7 @@ function CalendarScreen({
       return {
         icon: 'flame', color: C.fire, flame: 'solid',
         prefix: '已坚持', num: String(statsBar.streak), unit: '天',
+        numColor: streakTextColor(statsBar.streak),
         // 副文案跟着阶位走：每满 10 天换一句，和火焰的华丽度同步升级
         sub: restOnlyToday ? '该歇就歇，才练得久' : streakSub(statsBar.streak),
       };
@@ -774,6 +777,7 @@ function CalendarScreen({
       return {
         icon: 'flame-outline', color: C.fire, flame: 'linear',
         prefix: '已坚持', num: String(statsBar.streak), unit: '天',
+        numColor: streakTextColor(statsBar.streak),
         sub: '今天补上，别断了',
       };
     }
@@ -1132,7 +1136,14 @@ function CalendarScreen({
                     {leftView.prefix ? (
                       <Text style={styles.statsStreakPrefix}>{leftView.prefix}</Text>
                     ) : null}
-                    <Text style={styles.statsStreakNum}>{leftView.num}</Text>
+                    <Text
+                      style={[
+                        styles.statsStreakNum,
+                        leftView.numColor ? { color: leftView.numColor } : null,
+                      ]}
+                    >
+                      {leftView.num}
+                    </Text>
                     {leftView.unit ? (
                       <Text style={styles.statsStreakLabel}>{leftView.unit}</Text>
                     ) : null}
@@ -1391,6 +1402,7 @@ const styles = StyleSheet.create({
   statsStreakPair: { flexDirection: 'row', alignItems: 'baseline', marginLeft: 5 },
   // 「已坚持」作为前缀小字，和「天」同一层级；数字才是视觉重点
   statsStreakPrefix: { fontSize: 12, color: C.gray },
+  // 默认正文色；「已坚持 N 天」会覆盖成该阶的数字色（数值来自 streakTextColor）
   statsStreakNum: { fontSize: 22, fontWeight: 'bold', color: C.text, marginLeft: 3 },
   statsStreakLabel: { fontSize: 12, color: C.gray, marginLeft: 2 },
   // 0 天时显示的邀请文案，替代「已坚持 0 天」
