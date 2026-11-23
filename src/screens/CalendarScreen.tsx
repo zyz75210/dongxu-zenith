@@ -1267,7 +1267,8 @@ function CalendarScreen({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   screen: { flex: 1, backgroundColor: C.bg },
-  scroll: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 40 },
+  // 底部留白必须大于「FAB 底距 22 + 自身 52」= 74，否则滚到底时最后一条的状态胶囊会被加号盖住
+  scroll: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 88 },
 
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 18 },
   avatar: { width: 40, height: 40, borderRadius: 20 },
@@ -1417,7 +1418,8 @@ const styles = StyleSheet.create({
   // 「今天」徽章已移除：上方按钮已经能表达「你在今天」，两处重复只增加视觉噪音
   listSub: { fontSize: 11, color: C.gray, marginTop: 3 },
   // 操作提示单独一行、字号再小半号：它是辅助信息，不该和数量抢同一行的空间
-  listHint: { fontSize: 10.5, color: '#A8AEB9', marginTop: 2 },
+  // 用 11 而不用 10.5：半像素字号在中文字形上会发虚，是最容易被看出「不干净」的地方
+  listHint: { fontSize: 11, color: '#A8AEB9', marginTop: 2 },
   allLink: { fontSize: 12, color: C.primary, marginTop: 1 },
 
   fab: {
