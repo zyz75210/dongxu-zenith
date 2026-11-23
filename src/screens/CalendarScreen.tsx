@@ -247,7 +247,9 @@ const MonthGrid = memo(function MonthGrid({
       ))}
 
       {tallBands.map((b) => {
-        // 段端是否碰到主灰条的最左/最右（col 0 / col 6）：碰到则端部圆角，与主灰条侧边连成一体
+        // 段端是否碰到主灰条的最左/最右（col 0 / col 6）：
+        // 主灰条左右端是"向内凹"的圆角(10)，凸出块直角顶在凹弧下会形成 ( 形凹坑。
+        // 用一个"向外凸"的圆(直径20)填进这个凹坑，让侧边视觉变平、连成一体。
         const roundLeft = b.start === 0;
         const roundRight = b.end === 6;
         return (
@@ -256,10 +258,11 @@ const MonthGrid = memo(function MonthGrid({
             style={[
               styles.dayBandTall,
               { top: b.top, left: `${b.left}%`, width: `${b.width}%` },
-              roundLeft && styles.dayBandTallRoundL,
-              roundRight && styles.dayBandTallRoundR,
             ]}
-          />
+          >
+            {roundLeft && <View style={styles.edgeFillL} />}
+            {roundRight && <View style={styles.edgeFillR} />}
+          </View>
         );
       })}
 
@@ -980,13 +983,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#F2F3F6',
     borderBottomLeftRadius: 10, borderBottomRightRadius: 10,
   },
-  // 段左端碰到主灰条最左（周一）时：左上角圆角，与主灰条左端圆角连成一体
-  dayBandTallRoundL: {
-    borderTopLeftRadius: 10, borderBottomLeftRadius: 10,
+  // 端部填充圆：向外凸的圆(直径20)，填在主灰条左右端圆角凹坑里，让侧边视觉变平
+  edgeFillL: {
+    position: 'absolute', left: 0, top: -9,
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: '#F2F3F6',
   },
-  // 段右端碰到主灰条最右（周日）时：右上角圆角，与主灰条右端圆角连成一体
-  dayBandTallRoundR: {
-    borderTopRightRadius: 10, borderBottomRightRadius: 10,
+  edgeFillR: {
+    position: 'absolute', right: 0, top: -9,
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: '#F2F3F6',
   },
   // 选中态的液体滑块：尺寸/圆角显式写死，避免安卓上圆角丢失变成方块
   // 位置完全由 translateX / translateY 决定（left/top 固定 0），方便用 native driver
