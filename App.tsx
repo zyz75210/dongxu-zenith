@@ -11,7 +11,7 @@ import {
   checkNotifyHealth, consumeFreshGrant, deviceBrand, isWithinLeadWindow, needsBatteryHint,
   openAppSystemSettings, REMIND_MINUTES, syncReminders,
 } from './src/notifications';
-import { parseDateKey, dateKeyOf, completedStreak, timeToMinutes } from './src/utils/date';
+import { parseDateKey, dateKeyOf, completedStreak, isFinished, timeToMinutes } from './src/utils/date';
 import { completeTick } from './src/utils/haptics';
 import BottomNav, { TabKey } from './src/components/BottomNav';
 import DatePickerSheet from './src/components/DatePickerSheet';
@@ -271,19 +271,21 @@ export default function App() {
    * 用 useMemo 保证引用稳定 —— ProfileScreen 是 memo 的，每次渲染新建对象会让它白重渲染。
    */
   const profileStats = useMemo(() => {
-    const done = schedules.filter((s) => s.completed);
+    // 休息日不需要用户勾，日期到了就算完成 —— 统一走 isFinished，避免和首页口径不一致
+    const nowKey = dateKeyOf(new Date());
+    const done = schedules.filter((s) => isFinished(s, nowKey));
     /**
      * 本月摘要：卡片上先给一句结论（本月完成率），点进报告页才看细节。
      * 用 dateKeyOf 截前 7 位做月份前缀，和日程存的 "YYYY-MM-DD" 口径一致。
      */
-    const monthPrefix = dateKeyOf(new Date()).slice(0, 7);
+    const monthPrefix = nowKey.slice(0, 7);
     const month = schedules.filter((s) => s.date.startsWith(monthPrefix));
     return {
       total: schedules.length,
       done: done.length,
       streak: completedStreak(done.map((s) => s.date)),
       monthTotal: month.length,
-      monthDone: month.filter((s) => s.completed).length,
+      monthDone: month.filter((s) => isFinished(s, nowKey)).length,
     };
   }, [schedules]);
 
@@ -400,8 +402,24 @@ export default function App() {
     // 保存时就告诉用户：这条已经进了 15 分钟窗口，提醒会改成「开始时」发一条，
     // 否则用户会以为「开了提醒却没响」。编辑已完成的那条不提示（本来就不会提醒）。
     const completed = editingId ? Boolean(editItem?.completed) : false;
-    // 两条提示只留一条：时间重叠比提醒窗口更要紧，优先说它
-    if (overlapped) {
+    /**
+     * 休息和训练排在同一天：不拦，但给一句关怀提醒。
+     * 有人确实会「上午练、下午躺」，硬禁止反而烦；但多半是忘了那天已经排了别的。
+     */
+    const sameDay = latest.current.schedules.filter(
+      (o) => o.date === draft.date && (!editingId || o.id !== editingId),
+    );
+    const hasRest = sameDay.some((o) => o.type === 'rest');
+    const hasTrain = sameDay.some((o) => o.type !== 'rest');
+    const restClash = draft.type === 'rest' ? hasTrain : hasRest;
+    // 三条提示只留一条：休息冲突最要紧（它关系到别练过头），其次时间重叠，最后提醒窗口
+    if (restClash) {
+      showToast(
+        draft.type === 'rest'
+          ? '这天已经有训练啦，休息日建议先把训练挪到别的日期'
+          : '这天你安排了休息，想练的话注意别过量哦',
+      );
+    } else if (overlapped) {
       showToast('这段时间和已有日程重叠了，记得确认下安排');
     } else if (isWithinLeadWindow({ ...draft, completed })) {
       showToast(`距开始不足 ${REMIND_MINUTES} 分钟，提醒改为开始时发送`);
@@ -451,9 +469,11 @@ export default function App() {
 
   // 完成 / 取消完成：只翻转这一条，其他不动
   const toggleComplete = useCallback((id: string) => {
-    // 只在"未完成 → 完成"这一下给触感，取消完成不震（避免噪音）
     const cur = latest.current.schedules.find((s) => s.id === id);
-    if (cur && !cur.completed) completeTick();
+    // 休息日没有「完成 / 取消完成」这回事：日期到了自动算完成，不再给用户翻来翻去
+    if (!cur || cur.type === 'rest') return;
+    // 只在"未完成 → 完成"这一下给触感，取消完成不震（避免噪音）
+    if (!cur.completed) completeTick();
     setSchedules((list) =>
       list.map((s) => (s.id === id ? { ...s, completed: !s.completed } : s)),
     );

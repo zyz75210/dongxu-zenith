@@ -9,7 +9,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { C, WEEK_DAYS } from '../theme';
 import { Schedule, ScheduleType } from '../data';
 import {
-  buildMonthCells, Cell, completedStreak, dateKey, dateKeyOf, sameDay,
+  buildMonthCells, Cell, completedStreak, dateKey, dateKeyOf, isFinished, sameDay,
   timeToMinutes, weekdayIndex,
 } from '../utils/date';
 import ScheduleCapsule from '../components/ScheduleCapsule';
@@ -660,7 +660,7 @@ function CalendarScreen({
   // 连续打卡天数 + 本周训练统计（数据条用），全部由真实日程即时算
   // 「本周」跟随当前选中日期所在的周（周一~周日），翻到哪一周就统计哪一周
   const statsBar = useMemo(() => {
-    const done = schedules.filter((s) => s.completed);
+    const done = schedules.filter((s) => isFinished(s, todayKey));
     const streak = completedStreak(done.map((s) => s.date));
     const base = new Date(sel.y, sel.m, sel.d);
     const wd = (base.getDay() + 6) % 7; // 0=周一 … 6=周日
@@ -673,7 +673,7 @@ function CalendarScreen({
     const weekTrain = week.filter(isTraining);
     return {
       streak,
-      weekDone: weekTrain.filter((s) => s.completed).length,
+      weekDone: weekTrain.filter((s) => isFinished(s, todayKey)).length,
       weekTotal: weekTrain.length,
       weekRest: week.length - weekTrain.length,
       /** 选中的周是不是「今天所在的那一周」：决定右边说「本周」还是「当周」 */
@@ -699,11 +699,11 @@ function CalendarScreen({
     sub: string;
   } => {
     const total = daySchedules.length;
-    const doneCount = daySchedules.filter((s) => s.completed).length;
+    const doneCount = daySchedules.filter((s) => isFinished(s, todayKey)).length;
     // 训练与休息分开：文案要对得上「练了」还是「歇了」，不能混着说
     const trainList = daySchedules.filter(isTraining);
     const trainTotal = trainList.length;
-    const trainDone = trainList.filter((s) => s.completed).length;
+    const trainDone = trainList.filter((s) => isFinished(s, todayKey)).length;
 
     // 未来：还没发生，只陈述排了几条，不做任何评价
     if (statsBar.isFutureDay) {
@@ -737,22 +737,21 @@ function CalendarScreen({
     }
 
     // 今天：火焰三态，严格对应「今天做到了没有」
-    // ① 今天已经完成过（训练或休息都算）→ 实心橙，真的点亮了
+    // ① 今天已经算完成（训练勾了，或今天本来就是休息日）→ 实心橙，真的点亮了
     if (doneCount > 0) {
+      const restOnlyToday = trainTotal === 0 && total > 0;
       return {
         icon: 'flame', color: C.fire,
         prefix: '已坚持', num: String(statsBar.streak), unit: '天',
-        sub: '保持住，加油哦',
+        sub: restOnlyToday ? '好好休息，也是训练的一部分' : '保持住，加油哦',
       };
     }
     // ② 今天还没完成，但有连续记录 → 线性橙，亮着但没实心：提醒今天还差一次
     if (statsBar.streak > 0) {
-      // 今天排的只有休息，说「还没练」就错了
-      const restOnlyToday = trainTotal === 0 && total > 0;
       return {
         icon: 'flame-outline', color: C.fire,
         prefix: '已坚持', num: String(statsBar.streak), unit: '天',
-        sub: restOnlyToday ? '休息日记得打卡' : '今天还没练哦',
+        sub: '今天还没练哦',
       };
     }
     // ③ 完全没记录 → 线性灰
@@ -942,8 +941,21 @@ function CalendarScreen({
             <Ionicons name="chevron-back-outline" size={14} color={C.gray} />
             <Text style={styles.pillText}>上月</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.pill, styles.pillToday]} activeOpacity={0.7} onPress={goToday}>
-            <Text style={styles.pillTodayText}>今天</Text>
+          {/*
+            「今天」按钮兼两个身份：
+            - 已经选中今天 → 只是状态标签，写「今天」，禁用（点了也没有可做的事）
+            - 选中别的日期 → 变成可点的动作，写「回到今天」，实心主色更显眼
+            这样文案自己就说清了「能不能点」，不需要再靠置灰去猜。
+          */}
+          <TouchableOpacity
+            style={[styles.pill, isToday ? styles.pillToday : styles.pillBack]}
+            activeOpacity={0.7}
+            onPress={goToday}
+            disabled={isToday}
+          >
+            <Text style={isToday ? styles.pillTodayText : styles.pillBackText}>
+              {isToday ? '今天' : '回到今天'}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.pill} activeOpacity={0.7} onPress={() => goShift(1)}>
             <Text style={styles.pillText}>下月</Text>
@@ -1107,15 +1119,10 @@ function CalendarScreen({
             <Text style={styles.listTitle}>
               {sel.m + 1}月{sel.d}日 星期{WEEK_DAYS[weekdayIndex(selDate)]}
             </Text>
-            {isToday && (
-              <View style={styles.todayBadge}>
-                <Text style={styles.todayBadgeText}>今天</Text>
-              </View>
-            )}
           </View>
           <Text style={styles.listSub}>
             {dayCount > 0
-              ? `${dayCount} 个日程 · 点开看详情`
+              ? `${dayCount} 个日程 · 点开看详情，点标签标完成`
               : '暂无日程'}
           </Text>
           <TouchableOpacity activeOpacity={0.7} onPress={onOpenHistory}>
@@ -1177,6 +1184,9 @@ const styles = StyleSheet.create({
   pillText: { fontSize: 12, color: C.gray },
   pillToday: { backgroundColor: '#EAF1FE' },
   pillTodayText: { fontSize: 12, color: C.primary, fontWeight: '500' },
+  // 选中别的日期时：变成实心主色的动作按钮，「回到今天」四个字也放得下
+  pillBack: { backgroundColor: C.primary },
+  pillBackText: { fontSize: 12, color: C.white, fontWeight: '600' },
 
   weekRow: { flexDirection: 'row', marginBottom: 6 },
   weekText: { flex: 1, textAlign: 'center', fontSize: 12, color: C.gray },
@@ -1290,11 +1300,7 @@ const styles = StyleSheet.create({
   },
   listTitleRow: { flexDirection: 'row', alignItems: 'center' },
   listTitle: { fontSize: 15, fontWeight: '600', color: C.text },
-  todayBadge: {
-    marginLeft: 8, paddingHorizontal: 7, paddingVertical: 2,
-    borderRadius: 999, backgroundColor: '#EAF1FE',
-  },
-  todayBadgeText: { fontSize: 11, color: C.primary, fontWeight: '500' },
+  // 「今天」徽章已移除：上方按钮已经能表达「你在今天」，两处重复只增加视觉噪音
   listSub: { fontSize: 11, color: C.gray, marginTop: 3 },
   allLink: { fontSize: 12, color: C.primary },
 

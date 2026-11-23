@@ -92,3 +92,21 @@ export function timeToMinutes(t: string): number {
   const [h, m] = t.split(':').map(Number);
   return (h || 0) * 60 + (m || 0);
 }
+
+/**
+ * 一条日程「算不算完成」的统一判定。
+ *
+ * 休息日不需要用户勾选：休息这个动作本身就是「不做事」，
+ * 让用户去点一次「我完成了休息」，语义是拧的。所以休息日只要日期到了就算完成。
+ * 未来的休息日还没发生，不算完成。
+ *
+ * 全 App 的统计（连续打卡、本周完成数、报告完成率）都必须走这里，
+ * 否则会出现「卡片显示未完成，但连续天数算了一天」这种自相矛盾。
+ */
+export function isFinished(
+  s: { type: string; date: string; completed?: boolean },
+  todayKey: string,
+): boolean {
+  if (s.type === 'rest') return s.date <= todayKey;
+  return s.completed === true;
+}

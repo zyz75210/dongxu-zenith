@@ -5,7 +5,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { C, WEEK_DAYS } from '../theme';
 import { Schedule } from '../data';
-import { dateKeyOf, parseDateKey, timeToMinutes, weekdayIndex } from '../utils/date';
+import { dateKeyOf, isFinished, parseDateKey, timeToMinutes, weekdayIndex } from '../utils/date';
 import CompletionButton, { CompletionState } from '../components/CompletionButton';
 
 type Props = {
@@ -55,14 +55,17 @@ function DetailScreen({
 
   // 完成状态：已完成 > 隔天仍未完成（超时）> 待完成
   const todayKey = dateKeyOf(new Date());
-  const state: CompletionState = item.completed
+  // 休息日不需要勾选，日期到了就算完成 —— 统一走 isFinished
+  const isRest = item.type === 'rest';
+  const state: CompletionState = isFinished(item, todayKey)
     ? 'done'
     : item.date < todayKey
       ? 'overdue'
       : 'pending';
 
-  const stateText =
-    state === 'done'
+  const stateText = isRest
+    ? (state === 'done' ? '休息日 · 已记入打卡' : '休息日 · 到了那天自动记入')
+    : state === 'done'
       ? '已完成 · 再点一次可撤销'
       : state === 'overdue'
         ? '已超时未完成 · 点击补记'
@@ -134,7 +137,14 @@ function DetailScreen({
               {stateText}
             </Text>
           </View>
-          <CompletionButton state={state} onPress={() => onToggleComplete(item.id)} />
+          {/* 休息日不需要勾选：给一个静态的月亮标记，不给「可以点」的按钮 */}
+          {isRest ? (
+            <View style={styles.restMark}>
+              <Ionicons name="moon" size={22} color={C.typeDot.rest} />
+            </View>
+          ) : (
+            <CompletionButton state={state} onPress={() => onToggleComplete(item.id)} />
+          )}
         </View>
       </ScrollView>
 
@@ -207,6 +217,11 @@ const styles = StyleSheet.create({
     paddingLeft: 16, paddingRight: 14, paddingVertical: 12, marginTop: 14,
   },
   doneTexts: { flex: 1, paddingRight: 10 },
+  // 休息日替代完成按钮的静态标记：尺寸和 CompletionButton 的 46 圆对齐，布局不跳
+  restMark: {
+    width: 46, height: 46, borderRadius: 23,
+    backgroundColor: '#EFF3F5', alignItems: 'center', justifyContent: 'center',
+  },
   doneTitle: { fontSize: 13, color: C.text, fontWeight: '500', marginBottom: 5 },
   doneSub: { fontSize: 11, color: C.gray },
   doneSubLate: { color: C.danger },

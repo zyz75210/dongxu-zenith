@@ -5,6 +5,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { C } from '../theme';
 import { Schedule, ScheduleType } from '../data';
 import { TYPE_NAME } from '../components/ScheduleCapsule';
+import { dateKeyOf, isFinished } from '../utils/date';
 
 const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
 
@@ -45,7 +46,9 @@ function ReportScreen({ schedules, visible, onBack }: Props) {
 
   const { total, done, undone, pct, byType } = useMemo(() => {
     const rows = schedules.filter((s) => s.date.startsWith(monthKey));
-    const doneCount = rows.filter((s) => s.completed).length;
+    // 休息日日期到了就算完成（统一走 isFinished），和首页 / 我的 口径保持一致
+    const nowKey = dateKeyOf(new Date());
+    const doneCount = rows.filter((s) => isFinished(s, nowKey)).length;
 
     // 一次遍历把六类的数量数出来，避免每类各扫一遍列表
     const count: Record<string, number> = {};
