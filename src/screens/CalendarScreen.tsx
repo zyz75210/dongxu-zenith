@@ -9,7 +9,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { C, WEEK_DAYS } from '../theme';
 import { Schedule, ScheduleType } from '../data';
 import {
-  buildMonthCells, Cell, dateKey, sameDay, timeToMinutes, weekdayIndex,
+  buildMonthCells, Cell, completedStreak, dateKey, dateKeyOf, sameDay,
+  timeToMinutes, weekdayIndex,
 } from '../utils/date';
 import ScheduleCapsule from '../components/ScheduleCapsule';
 
@@ -631,6 +632,25 @@ function CalendarScreen({
     return map;
   }, [schedules]);
 
+  // 连续打卡天数 + 本周训练统计（数据条用），全部由真实日程即时算
+  const statsBar = useMemo(() => {
+    const done = schedules.filter((s) => s.completed);
+    const streak = completedStreak(done.map((s) => s.date));
+    // 本周（周一 ~ 周日）范围
+    const now = new Date();
+    const wd = (now.getDay() + 6) % 7; // 0=周一 … 6=周日
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - wd);
+    const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+    const mk = dateKeyOf(monday);
+    const sk = dateKeyOf(sunday);
+    const week = schedules.filter((s) => s.date >= mk && s.date <= sk);
+    return {
+      streak,
+      weekDone: week.filter((s) => s.completed).length,
+      weekTotal: week.length,
+    };
+  }, [schedules]);
+
   const prevDate = new Date(view.y, view.m - 1, 1);
   const nextDate = new Date(view.y, view.m + 1, 1);
 
@@ -886,6 +906,36 @@ function CalendarScreen({
           </Animated.View>
         </View>
 
+        {/* 数据条：连续打卡 + 本周训练进度，放在月历和日程列表之间 */}
+        <View style={styles.statsBar}>
+          <View style={styles.statsLeft}>
+            <View style={styles.statsFireRow}>
+              <Text style={styles.statsFire}>🔥</Text>
+              <Text style={styles.statsStreakNum}>{statsBar.streak}</Text>
+              <Text style={styles.statsStreakLabel}>天</Text>
+            </View>
+            <Text style={styles.statsStreakSub}>保持住，别断签</Text>
+          </View>
+
+          <View style={styles.statsRight}>
+            <View style={styles.statsWeekRow}>
+              <Text style={styles.statsWeekText}>本周训练</Text>
+              <Text style={styles.statsWeekNum}>
+                {statsBar.weekDone}<Text style={styles.statsWeekTotal}>/{statsBar.weekTotal}</Text>
+              </Text>
+              <Text style={styles.statsWeekUnit}>次</Text>
+            </View>
+            <View style={styles.progressTrack}>
+              <View
+                style={[
+                  styles.progressFill,
+                  { width: `${statsBar.weekTotal ? Math.min(100, (statsBar.weekDone / statsBar.weekTotal) * 100) : 0}%` },
+                ]}
+              />
+            </View>
+          </View>
+        </View>
+
         {/* 当天日程标题 */}
         <View style={styles.listHeader}>
           <View style={styles.listTitleRow}>
@@ -1032,6 +1082,33 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.line, borderRadius: 18, borderStyle: 'dashed',
   },
   emptyText: { fontSize: 12, color: C.gray },
+
+  // 数据条：连续打卡 + 本周训练进度
+  statsBar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: '#F7F8FA', borderRadius: 14,
+    paddingHorizontal: 16, paddingVertical: 12, marginBottom: 18,
+  },
+  statsLeft: {},
+  statsFireRow: { flexDirection: 'row', alignItems: 'baseline' },
+  statsFire: { fontSize: 16 },
+  statsStreakNum: { fontSize: 22, fontWeight: 'bold', color: C.text, marginLeft: 4 },
+  statsStreakLabel: { fontSize: 12, color: C.gray, marginLeft: 2 },
+  statsStreakSub: { fontSize: 11, color: C.gray, marginTop: 3 },
+  statsRight: { alignItems: 'flex-end' },
+  statsWeekRow: { flexDirection: 'row', alignItems: 'baseline' },
+  statsWeekText: { fontSize: 12, color: C.gray },
+  statsWeekNum: { fontSize: 18, fontWeight: 'bold', color: '#16864A', marginLeft: 6 },
+  statsWeekTotal: { fontSize: 13, fontWeight: '600', color: C.gray },
+  statsWeekUnit: { fontSize: 12, color: C.gray, marginLeft: 2 },
+  progressTrack: {
+    width: 90, height: 4, borderRadius: 2,
+    backgroundColor: '#E5E8EE', marginTop: 6, overflow: 'hidden',
+  },
+  progressFill: {
+    height: 4, borderRadius: 2,
+    backgroundColor: '#16864A',
+  },
 
   listHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
