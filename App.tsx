@@ -152,11 +152,31 @@ export default function App() {
    * 后续其它需要"说一句"的操作可以直接复用。
    */
   const [toast, setToast] = useState<string | null>(null);
+  /**
+   * 可撤销提示里那个按钮。有值 = 这次提示带一个能点的动作（比如「撤销」）。
+   * 和文案分开存：普通提示不该因为上一次是撤销提示就多出一个按钮。
+   */
+  const [toastAction, setToastAction] = useState<{ label: string; onPress: () => void } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((text: string) => {
     setToast(text);
+    setToastAction(null);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 2400);
+  }, []);
+  /**
+   * 带动作的提示（删除后的「撤销」）。
+   * 停留时间按 5.2 秒：比普通提示长一倍多 —— 撤销这种操作，人要先反应过来发生了什么，
+   * 2.4 秒根本来不及。
+   */
+  const showUndoToast = useCallback((text: string, onPress: () => void) => {
+    setToast(text);
+    setToastAction({ label: '撤销', onPress });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => {
+      setToast(null);
+      setToastAction(null);
+    }, 5200);
   }, []);
   useEffect(() => () => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -511,26 +531,67 @@ export default function App() {
     if (freq) showToast(`${REPEAT_WORD[freq]}一次，已排好 ${items.length} 次`);
   }, [editingId, editItem, bumpReminders, showToast]);
 
-  const deleteSchedule = useCallback((id: string) => {
-    setSchedules((list) => list.filter((s) => s.id !== id));
+  /**
+   * 删除 + 撤销。
+   * 删之前先把「被删的是哪几条、原来排在第几位」记下来，撤销时按原索引插回去 ——
+   * 这样撤销后的列表顺序和删之前一模一样，而不是把恢复的日程甩到末尾。
+   * 只认这一次的 5 秒窗口，过期就真的没了（不占内存、也不给"其实删掉了"的错觉）。
+   */
+  /** 把删掉的那几条按原索引插回列表，并立刻收起提示 */
+  const restoreRemoved = useCallback((removed: { item: Schedule; index: number }[]) => {
+    setSchedules((list) => {
+      const next = [...list];
+      removed
+        .slice()
+        .sort((a, b) => a.index - b.index)
+        .forEach(({ item, index }) => next.splice(Math.min(index, next.length), 0, item));
+      return next;
+    });
+    // 撤销完立刻收起提示，不用等它自己消失
+    setToast(null);
+    setToastAction(null);
+  }, []);
+
+  const deleteWithUndo = useCallback((
+    match: (s: Schedule) => boolean,
+    label: (n: number) => string,
+  ) => {
+    const removed = latest.current.schedules
+      .map((s, index) => ({ item: s, index }))
+      .filter(({ item }) => match(item));
+    if (removed.length === 0) return;
+
+    setSchedules((list) => list.filter((s) => !match(s)));
     setSelectedId(null);
     setPage(detailFrom.current);
-  }, []);
+    showUndoToast(label(removed.length), () => restoreRemoved(removed));
+  }, [restoreRemoved, showUndoToast]);
+
+  const deleteSchedule = useCallback((id: string) => {
+    deleteWithUndo((s) => s.id === id, () => '已删除这条日程');
+  }, [deleteWithUndo]);
 
   /** 删除整串重复日程：seriesId 相同的每一条都走 */
   const deleteSeries = useCallback((seriesId: string) => {
-    setSchedules((list) => list.filter((s) => s.seriesId !== seriesId));
-    setSelectedId(null);
-    setPage(detailFrom.current);
-  }, []);
+    deleteWithUndo(
+      (s) => s.seriesId === seriesId,
+      (n) => `已删除 ${n} 条重复日程`,
+    );
+  }, [deleteWithUndo]);
 
-  /** 历史日程里批量删除：一次把选中的月份 / 日期下的日程全部移除 */
+  /** 历史日程里批量删除：一次把选中的月份 / 日期下的日程全部移除（同样可撤销） */
   const deleteSchedules = useCallback((ids: string[]) => {
     if (ids.length === 0) return;
     const kill = new Set(ids);
+    const removed = latest.current.schedules
+      .map((s, index) => ({ item: s, index }))
+      .filter(({ item }) => kill.has(item.id));
     setSchedules((list) => list.filter((s) => !kill.has(s.id)));
     setSelectedId((cur) => (cur && kill.has(cur) ? null : cur));
-  }, []);
+    if (removed.length > 0) {
+      showUndoToast(`已删除 ${removed.length} 条`, () => restoreRemoved(removed));
+    }
+  }, [restoreRemoved, showUndoToast]);
 
   // 完成 / 取消完成：只翻转这一条，其他不动
   const toggleComplete = useCallback((id: string) => {
@@ -1031,7 +1092,7 @@ export default function App() {
       />
 
       {/* 引导面板在前时先不弹轻提示：面板本身就带着更完整的说明，两个一起冒会互相盖住 */}
-      <Toast message={guide ? null : toast} />
+      <Toast message={guide ? null : toast} action={guide ? null : toastAction} />
 
       {/* 通知引导：权限 / 渠道 / 省电策略共用同一个面板，内容按 kind 切换 */}
       <NotifyGuideSheet
