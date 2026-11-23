@@ -5,6 +5,22 @@
 export type ScheduleType =
   | 'rope' | 'fitness' | 'run' | 'rest';
 
+/**
+ * 重复频率。只在「保存那一刻」有意义：
+ * 上层会按它把一条日程展开成多条具体日期的实例，实例本身不再带这个字段。
+ * 这样日历、连续天数、本周进度、报告页全部零改动 —— 它们只认 date。
+ */
+export type Repeat = 'none' | 'daily' | 'weekly' | 'monthly';
+
+/**
+ * 每种重复一次排几次（含起始那天）。
+ * 数字是权衡：太少用户还没形成习惯就断了，太多会把日历塞满、也让人不敢点。
+ * 每天/每周 8 次（一周多 / 两个月），每月 4 次（四个月）。
+ */
+export const REPEAT_COUNT: Record<Repeat, number> = {
+  none: 1, daily: 8, weekly: 8, monthly: 4,
+};
+
 export type Schedule = {
   id: string;
   /** 所属日期：YYYY-MM-DD */
@@ -18,6 +34,8 @@ export type Schedule = {
   remind?: boolean;
   /** 是否已完成：详情页圆形按钮切换 */
   completed?: boolean;
+  /** 重复规则：只在新建草稿里出现，落库时已被展开掉 */
+  repeat?: Repeat;
 };
 
 /** 个人资料：由 App.tsx 持有，"我的"页和编辑页共用一个来源；已随日程一起持久化 */

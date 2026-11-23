@@ -69,6 +69,36 @@ export function parseDateKey(key: string): { y: number; m: number; d: number } {
 }
 
 /**
+ * 按重复规则算出「后续几次」的日期键（不含起始那天）。
+ *
+ * 为什么展开成具体日期，而不是存一条规则：
+ * 日历、连续天数、本周完成率、报告页全都只认 date，展开成实例后它们一行都不用改。
+ * 代价是系列里的每一条都是独立日程（删一条不会连带删），这也符合训练打卡的心智。
+ *
+ * 月底要夹一下：1 月 31 日「每月」重复，2 月没有 31 号，落到 2 月 28/29 号，
+ * 而不是滚到 3 月 3 号。
+ */
+export function repeatDates(
+  base: string,
+  freq: 'daily' | 'weekly' | 'monthly',
+  count: number,
+): string[] {
+  const { y, m, d } = parseDateKey(base);
+  const out: string[] = [];
+  for (let i = 1; i < count; i++) {
+    if (freq === 'daily') {
+      out.push(dateKeyOf(new Date(y, m, d + i)));
+    } else if (freq === 'weekly') {
+      out.push(dateKeyOf(new Date(y, m, d + i * 7)));
+    } else {
+      const lastDay = new Date(y, m + i + 1, 0).getDate();
+      out.push(dateKeyOf(new Date(y, m + i, Math.min(d, lastDay))));
+    }
+  }
+  return out;
+}
+
+/**
  * 解析搜索栏里手输的日期。
  *
  * 只认「年 月 日」三段：2025.11.25 / 2025-11-25 / 2025/11/25 / 20251125 都能吃。

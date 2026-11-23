@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { C, WEEK_DAYS } from '../theme';
-import { Schedule, ScheduleType } from '../data';
+import { Schedule, ScheduleType, Repeat, REPEAT_COUNT } from '../data';
 import { dateKey, parseDateKey, weekdayIndex } from '../utils/date';
 
 type Props = {
@@ -39,6 +39,17 @@ const types: { key: ScheduleType; label: string }[] = [
   { key: 'fitness', label: '体能' },
   { key: 'run', label: '跑步' },
   { key: 'rest', label: '休息' },
+];
+
+/**
+ * 重复选项。文案都短，是为了四个能在一行里放下（窄屏也不会换行）。
+ * 「不重复」放第一个：多数人就是排一次，默认值也是它。
+ */
+const repeats: { key: Repeat; label: string }[] = [
+  { key: 'none', label: '不重复' },
+  { key: 'daily', label: '每天' },
+  { key: 'weekly', label: '每周' },
+  { key: 'monthly', label: '每月' },
 ];
 
 const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
@@ -121,6 +132,8 @@ function AddScheduleScreen({
   const [date, setDate] = useState(initialDate);
   const [start, setStart] = useState(BLANK.start);
   const [end, setEnd] = useState(BLANK.end);
+  /** 重复：只在新建时可选；编辑针对的是某一天的那一条，给「重复」会让人误以为能改整串 */
+  const [repeat, setRepeat] = useState<Repeat>('none');
   // 刚才这一下输入被字数限制挡掉了 → 立刻在输入框下方提示，别让用户以为键盘坏了
   const [titleFull, setTitleFull] = useState(false);
 
@@ -147,6 +160,7 @@ function AddScheduleScreen({
         setRemind(BLANK.remind);
         setDate(initialDate);
         setStart(BLANK.start);
+        setRepeat('none');
         // 空状态快捷进来：结束时间 = 开始 + 预设时长，表单和「三分钟」的文案对得上
         if (presetMinutes && presetMinutes > 0) {
           const total = BLANK.start.h * 60 + BLANK.start.m + presetMinutes;
@@ -223,6 +237,8 @@ function AddScheduleScreen({
       tag: typeLabel,
       note: note.trim() || undefined,
       remind,
+      // 编辑的是某一天的那一条，没有"重复"可言，只有新建才带
+      ...(editItem ? {} : { repeat }),
     });
   };
 
@@ -307,6 +323,31 @@ function AddScheduleScreen({
               </View>
             </TouchableOpacity>
           </View>
+
+          {/* 重复：只在新建时出现。横排一行，和上面「开始/结束」同属时间这一块 */}
+          {!editItem && (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.repeatRow}>
+                <Text style={styles.repeatLabel}>重复</Text>
+                <View style={styles.repeatChips}>
+                  {repeats.map((r) => {
+                    const on = r.key === repeat;
+                    return (
+                      <TouchableOpacity
+                        key={r.key}
+                        style={[styles.repeatChip, on && styles.repeatChipOn]}
+                        onPress={() => setRepeat(r.key)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.repeatText, on && styles.repeatTextOn]}>{r.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            </>
+          )}
         </View>
 
         {/* 日程类型 */}
@@ -374,7 +415,14 @@ function AddScheduleScreen({
       {/* 保存按钮 */}
       <View style={styles.footer}>
         <TouchableOpacity style={styles.saveBtn} onPress={save} activeOpacity={0.85}>
-          <Text style={styles.saveText}>{editItem ? '保存修改' : '保存日程'}</Text>
+          <Text style={styles.saveText}>
+            {/* 选了重复就把"会排几次"提前写在按钮上，别等保存完才让人意外 */}
+            {editItem
+              ? '保存修改'
+              : repeat === 'none'
+                ? '保存日程'
+                : `保存日程 · 共 ${REPEAT_COUNT[repeat]} 次`}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -426,6 +474,22 @@ const styles = StyleSheet.create({
   timeRow: { flexDirection: 'row', alignItems: 'stretch' },
   timeCell: { flex: 1, paddingVertical: 10 },
   vDivider: { width: 1, backgroundColor: C.line, marginVertical: 12, marginHorizontal: 10 },
+
+  // 重复：左侧一个短标签，右边四个选项横排靠右。
+  // 四个选项都压到最小尺寸，是为了窄屏也在一行里放得下，不换行、不横向滚动。
+  repeatRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 12, gap: 10,
+  },
+  repeatLabel: { fontSize: 11, color: C.gray },
+  repeatChips: { flexDirection: 'row', gap: 6, flex: 1, justifyContent: 'flex-end' },
+  repeatChip: {
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: 999, borderWidth: 1, borderColor: C.line, backgroundColor: C.bg,
+  },
+  repeatChipOn: { borderColor: C.primary, backgroundColor: '#F0F5FF' },
+  repeatText: { fontSize: 12, color: C.sub },
+  repeatTextOn: { color: C.primary, fontWeight: '500' },
 
   typeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   // 四个分类（跳绳/体能/跑步/休息）等分一行：flexBasis 0 让它们自己均分宽度，

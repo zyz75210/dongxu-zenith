@@ -5,13 +5,13 @@ import {
 } from 'react-native';
 import { C } from './src/theme';
 import { MOTION } from './src/motion';
-import { initialSchedules, initialProfile, Profile, Schedule } from './src/data';
+import { initialSchedules, initialProfile, Profile, Schedule, REPEAT_COUNT } from './src/data';
 import { loadPersistedData, savePersistedData } from './src/storage';
 import {
   checkNotifyHealth, consumeFreshGrant, deviceBrand, isWithinLeadWindow, needsBatteryHint,
   openAppSystemSettings, REMIND_MINUTES, syncReminders,
 } from './src/notifications';
-import { parseDateKey, dateKeyOf, completedStreak, isFinished, timeToMinutes } from './src/utils/date';
+import { parseDateKey, dateKeyOf, completedStreak, isFinished, timeToMinutes, repeatDates } from './src/utils/date';
 import { completeTick } from './src/utils/haptics';
 import BottomNav, { TabKey } from './src/components/BottomNav';
 import DatePickerSheet from './src/components/DatePickerSheet';
@@ -484,14 +484,28 @@ export default function App() {
       setPage('detail');        // 改完回详情页，能立刻看到新内容
       return;
     }
-    const item: Schedule = {
-      ...draft,
+    /**
+     * 重复：在这里把一条草稿展开成多条具体日期的实例，实例不带 repeat 字段。
+     * 这样日历、连续天数、本周完成率、报告页全都不需要知道"重复"这回事 ——
+     * 它们看到的就是若干条各自独立的日程。
+     */
+    const { repeat: repeatKind, ...base } = draft;
+    const extraDates = repeatKind && repeatKind !== 'none'
+      ? repeatDates(base.date, repeatKind, REPEAT_COUNT[repeatKind])
+      : [];
+    const items: Schedule[] = [base.date, ...extraDates].map((d) => ({
+      ...base,
+      date: d,
       id: `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-    };
-    setSchedules((list) => [...list, item]);
+    }));
+    setSchedules((list) => [...list, ...items]);
     // 保存后跳到该日程所在日期，能立刻看到它
-    setJumpDate(parseDateKey(item.date));
+    setJumpDate(parseDateKey(base.date));
     setPage('main');
+    if (extraDates.length > 0) {
+      const word = repeatKind === 'daily' ? '每天' : repeatKind === 'weekly' ? '每周' : '每月';
+      showToast(`${word}一次，已排好 ${items.length} 次`);
+    }
   }, [editingId, editItem, bumpReminders, showToast]);
 
   const deleteSchedule = useCallback((id: string) => {
