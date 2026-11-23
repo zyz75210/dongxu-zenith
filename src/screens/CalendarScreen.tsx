@@ -805,16 +805,6 @@ function CalendarScreen({
     };
   }, [daySchedules, statsBar]);
 
-  /**
-   * 本月有没有勾过任意一条训练。
-   * 休息日不算「勾过」——它到了那天自动算完成，用户没做过任何操作。
-   * 这决定了标题旁边那句操作提示还该不该出现：他自己勾过一次，就说明学会了。
-   */
-  const monthTouched = useMemo(() => {
-    const prefix = `${view.y}-${String(view.m + 1).padStart(2, '0')}`;
-    return schedules.some((s) => s.type !== 'rest' && s.completed && s.date.startsWith(prefix));
-  }, [schedules, view.y, view.m]);
-
   const prevDate = new Date(view.y, view.m - 1, 1);
   const nextDate = new Date(view.y, view.m + 1, 1);
 
@@ -1188,14 +1178,15 @@ function CalendarScreen({
           标题行：左边日期，右边一句操作提示（同一行，读起来是一句话）。
           原来右侧挂的「全部」已经去掉：设置页和「我的」页都有历史日程入口，
           首页这个链接只是更快一步，却一直占着最贵的一行右侧。
+          「1 个日程」单独占下一行，不跟日期抢宽度。
         */}
         <View style={styles.listHeader}>
           <View style={styles.listTitleRow}>
             <Text style={styles.listTitle}>
               {sel.m + 1}月{sel.d}日 星期{WEEK_DAYS[weekdayIndex(selDate)]}
             </Text>
-            {/* 提示只在「本月还没勾过任何一条」时出现：学会一次就永久退场 */}
-            {dayCount > 0 && !monthTouched && (
+            {/* 提示只要列表里有条目就常驻：它是这行的操作说明，不是新手引导 */}
+            {dayCount > 0 && (
               <Text style={styles.listHint} numberOfLines={1}>
                 先点开看详情 · 点标签标完成
               </Text>
