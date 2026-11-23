@@ -114,6 +114,8 @@ function AddScheduleScreen({
   const [date, setDate] = useState(initialDate);
   const [start, setStart] = useState(BLANK.start);
   const [end, setEnd] = useState(BLANK.end);
+  // 刚才这一下输入被字数限制挡掉了 → 立刻在输入框下方提示，别让用户以为键盘坏了
+  const [titleFull, setTitleFull] = useState(false);
 
   /**
    * 这个页面现在会常驻在屏幕外（为了开页不卡），
@@ -142,6 +144,8 @@ function AddScheduleScreen({
       }
       // 页面常驻不卸载，上次滑到的位置会留着，重新打开时回到顶部
       scrollRef.current?.scrollTo({ y: 0, animated: false });
+      // 上一次的超限提示不要带到这一次开页
+      setTitleFull(false);
     }
     prevVisible.current = visible;
   }, [visible, initialDate, editItem]);
@@ -158,6 +162,17 @@ function AddScheduleScreen({
   // 点开始/结束时间：同一个时间滚轮，只是标题和初值不同
   const openStart = () => onOpenTime('开始时间', start, (h, m) => setStart({ h, m }));
   const openEnd = () => onOpenTime('结束时间', end, (h, m) => setEnd({ h, m }));
+
+  /**
+   * 输入标题：超出的部分直接吃掉（限制本身不打折），
+   * 但要立刻在输入框下方亮出「到上限了」，否则用户只会觉得「字怎么打不进去」。
+   * 只在「这一次输入确实被截断」时亮，删字后自动消失，不会一直挂着。
+   */
+  const onTitleChange = (t: string) => {
+    const clamped = clampTitle(t);
+    setTitleFull(clamped !== t);
+    setTitle(clamped);
+  };
 
   // 训练内容：后期开发的预留入口，先给个轻提示，避免点了没反应像坏了
   const openTrainingPlaceholder = () => {
@@ -211,19 +226,24 @@ function AddScheduleScreen({
         {/* 标题 */}
         <View style={styles.labelRow}>
           <Text style={[styles.label, styles.labelInRow]}>标题</Text>
-          <Text style={[styles.titleCount, titleOver && styles.titleCountOver]}>
+          <Text style={[styles.titleCount, (titleFull || titleOver) && styles.titleCountOver]}>
             {Math.ceil(unitsOf(title) / 2)}/{TITLE_MAX_HAN}
           </Text>
         </View>
         <TextInput
           style={styles.titleInput}
           value={title}
-          onChangeText={(t) => setTitle(clampTitle(t))}
+          onChangeText={onTitleChange}
           placeholder="输入日程标题"
           placeholderTextColor={C.gray}
           // 字符数兜底：防止粘贴上千字；真正的宽度限制在 clampTitle 里
           maxLength={TITLE_UNITS}
         />
+        {(titleFull || titleOver) && (
+          <Text style={styles.titleHint}>
+            {titleFull ? '已到字数上限：' : '标题超出上限：'}中文 {TITLE_MAX_HAN} 字 / 英文 {TITLE_UNITS} 个字母
+          </Text>
+        )}
 
         {/* 日期与时间 */}
         <Text style={[styles.label, styles.labelGap]}>日期与时间</Text>
@@ -364,6 +384,7 @@ const styles = StyleSheet.create({
     borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13,
     fontSize: 14, color: C.text, backgroundColor: C.bg,
   },
+  titleHint: { fontSize: 11, color: C.danger, marginTop: 6 },
 
   fieldCard: {
     borderWidth: 1, borderColor: C.line, borderRadius: 12,
