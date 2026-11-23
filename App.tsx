@@ -682,7 +682,7 @@ export default function App() {
             onOpenSettings={openSettings}
             onOpenHistory={openHistoryFromMain}
             avatar={profile.avatar}
-            onGoTrain={() => showToast('训练板块即将上线')}
+            onGoTrain={() => showToast('训练板块还在装修，先记着这条')}
             onAddAt={openAddAt}
             onOpenReport={openReportFromMain}
           />

@@ -710,32 +710,33 @@ function CalendarScreen({
     // 未来：还没发生，只陈述排了几条，不做任何评价
     if (statsBar.isFutureDay) {
       return total > 0
-        ? { icon: 'calendar-outline', color: C.primary, text: `已安排 ${total} 条`, sub: '到时候别忘啦' }
-        : { icon: 'calendar-outline', color: C.gray, text: '还没安排', sub: '可以提前排一下' };
+        ? { icon: 'calendar-outline', color: C.primary, text: `已安排 ${total} 条`, sub: '到时候见' }
+        : { icon: 'calendar-outline', color: C.gray, text: '还没安排', sub: '要不要先占个位' };
     }
 
     // 历史：说那天的结果
     if (statsBar.isPastDay) {
       // 那天压根没排——别说「忙忘啦」，那是在冤枉人
       if (total === 0) {
-        return { icon: 'remove-outline', color: C.gray, text: '没安排', sub: '那天休息也挺好' };
+        return { icon: 'remove-outline', color: C.gray, text: '没安排', sub: '空着也是一种安排' };
       }
       // 那天只排了休息：这是计划内的恢复日，不能按「训练完成率」去算
       if (trainTotal === 0) {
         return doneCount === total
-          ? { icon: 'moon', color: C.typeDot.rest, text: '休息到位', sub: '恢复也是训练的一部分' }
-          : { icon: 'moon-outline', color: C.gray, text: '休息没打卡', sub: '下次记得勾一下' };
+          ? { icon: 'moon', color: C.typeDot.rest, text: '休息到位', sub: '歇够了才练得动' }
+          // 「下次记得勾一下」是在指责用户，而休息日本来就不需要他操作，责任在产品
+          : { icon: 'moon-outline', color: C.gray, text: '休息没打卡', sub: '忘勾了，不影响休息' };
       }
       if (trainDone === trainTotal) {
-        return { icon: 'checkmark-circle', color: C.done, text: '全部完成', sub: '真棒，这天练到了' };
+        return { icon: 'checkmark-circle', color: C.done, text: '全部完成', sub: '这天没偷懒' };
       }
       if (trainDone > 0) {
         return {
           icon: 'checkmark-circle-outline', color: C.halfUp,
-          text: `完成 ${trainDone}/${trainTotal}`, sub: '还差一点，下次补上',
+          text: `完成 ${trainDone}/${trainTotal}`, sub: '差一点就满分',
         };
       }
-      return { icon: 'ellipse-outline', color: C.gray, text: '没完成', sub: '忙忘啦，有点可惜' };
+      return { icon: 'ellipse-outline', color: C.gray, text: '没完成', sub: '大概是忙忘了' };
     }
 
     // 今天：火焰三态，严格对应「今天做到了没有」
@@ -745,7 +746,7 @@ function CalendarScreen({
       return {
         icon: 'flame', color: C.fire,
         prefix: '已坚持', num: String(statsBar.streak), unit: '天',
-        sub: restOnlyToday ? '好好休息，也是训练的一部分' : '保持住，加油哦',
+        sub: restOnlyToday ? '该歇就歇，才练得久' : '稳，明天见',
       };
     }
     // ② 今天还没完成，但有连续记录 → 线性橙，亮着但没实心：提醒今天还差一次
@@ -753,14 +754,15 @@ function CalendarScreen({
       return {
         icon: 'flame-outline', color: C.fire,
         prefix: '已坚持', num: String(statsBar.streak), unit: '天',
-        sub: '今天还没练哦',
+        sub: '今天补上，别断了',
       };
     }
     // ③ 完全没记录 → 线性灰
+    // 副文案只做「轻推」，具体门槛（三分钟）交给下方空状态说，避免同一句话在一屏里说两遍
     return {
       icon: 'flame-outline', color: C.gray,
-      text: '今天开始',
-      sub: statsBar.weekTotal === 0 ? '该运动啦' : '练完就点亮',
+      text: '今天还没动',
+      sub: statsBar.weekTotal === 0 ? '动一下就行' : '练完来打个勾',
     };
   }, [daySchedules, statsBar]);
 
@@ -1087,8 +1089,8 @@ function CalendarScreen({
                 {statsBar.weekRest > 0
                   ? `${statsBar.isThisWeek ? '本周' : '当周'}休息 ${statsBar.weekRest} 天`
                   : statsBar.isThisWeek
-                    ? '该运动啦 ›'
-                    : (statsBar.isPastDay ? '那周没安排' : '还没排')}
+                    ? '这周还空着 ›'
+                    : (statsBar.isPastDay ? '那周是空的' : '还空着')}
               </Text>
             ) : (
               /*
@@ -1104,12 +1106,11 @@ function CalendarScreen({
               >
                 {/* 选中历史周还说「本周训练」就是错的，按是否本周切换措辞 */}
                 <Text style={styles.statsWeekText}>
-                  {statsBar.isThisWeek ? '本周训练' : '当周训练'}
+                  {statsBar.isThisWeek ? '本周' : '当周'}
                 </Text>
                 <Text style={styles.statsWeekNum}>
                   {statsBar.weekDone}<Text style={styles.statsWeekTotal}>/{statsBar.weekTotal}</Text>
                 </Text>
-                <Text style={styles.statsWeekUnit}>次</Text>
                 <Ionicons
                   name="chevron-forward"
                   size={12}
@@ -1168,15 +1169,21 @@ function CalendarScreen({
               ))}
             </View>
 
-            <Text style={styles.emptyLead}>
-              {isToday
-                ? '今天该动一动啦'
-                : (statsBar.isPastDay ? '这天没安排' : '这天还没安排')}
-            </Text>
+            <View style={styles.emptyCopy}>
+              <Text style={styles.emptyLead}>
+                {isToday
+                  ? '先动三分钟？'
+                  : (statsBar.isPastDay ? '这天没留下记录' : '这天还是空的')}
+              </Text>
+              {/* 专门拆掉「今天算了」的三个借口：要装备、要热身、要练很久 */}
+              {isToday && (
+                <Text style={styles.emptySub}>不用装备，不用热身，想停就停</Text>
+              )}
+            </View>
 
             <TouchableOpacity style={styles.emptyCta} activeOpacity={0.85} onPress={onOpenAdd}>
               <Ionicons name="add" size={15} color={C.white} />
-              <Text style={styles.emptyCtaText}>排一条训练</Text>
+              <Text style={styles.emptyCtaText}>排一条</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -1296,6 +1303,8 @@ const styles = StyleSheet.create({
   emptyTypeDot: { width: 8, height: 8, borderRadius: 4 },
   emptyTypeText: { fontSize: 12, color: C.text },
   emptyLead: { fontSize: 13, fontWeight: '500', color: C.text },
+  emptyCopy: { alignItems: 'center', gap: 5 },
+  emptySub: { fontSize: 12, color: C.gray },
   emptyCta: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: C.primary, borderRadius: 999,
@@ -1325,10 +1334,9 @@ const styles = StyleSheet.create({
   statsEmpty: { fontSize: 13, color: C.primary, fontWeight: '500' },
   statsWeekRow: { flexDirection: 'row', alignItems: 'baseline' },
   statsWeekText: { fontSize: 12, color: C.gray },
-  // 和右侧「该运动啦」同一个主色蓝：同一块区域两种状态用同一套色，视觉连贯
+  // 和右侧「这周还空着」同一个主色蓝：同一块区域两种状态用同一套色，视觉连贯
   statsWeekNum: { fontSize: 18, fontWeight: 'bold', color: C.primary, marginLeft: 6 },
   statsWeekTotal: { fontSize: 13, fontWeight: '600', color: C.gray },
-  statsWeekUnit: { fontSize: 12, color: C.gray, marginLeft: 2 },
   // 箭头告诉用户「这行字能点」，也是唯一说明它是入口的地方
   statsWeekCaret: { marginLeft: 1, alignSelf: 'center' },
 
