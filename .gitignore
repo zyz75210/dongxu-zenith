@@ -8,8 +8,9 @@ node_modules/
 dist/
 web-build/
 expo-env.d.ts
-# 测量包体积用的临时导出目录（expo export）
-.tmp-export/
+# 打包产物 / 体积测量用的临时导出目录（expo export --output-dir .tmp-xxx）
+# 用通配而不是逐个写：之前 .tmp-bundle 就是这么被 git add -A 带进仓库的（4MB 的 hbc + 资源）
+.tmp*/
 
 # Native
 .kotlin/
