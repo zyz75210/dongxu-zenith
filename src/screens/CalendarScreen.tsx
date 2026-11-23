@@ -964,11 +964,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#F2F3F6', borderRadius: 10,
   },
   // 有训练的日期，在底灰条下方延伸的凸台（放圆点用）：
-  // 顶部无缝贴主灰条（无圆角、无分界），两侧近垂直，底部大圆角圆滑收尾
+  // 顶部左右角圆角，与主灰条左右端圆角对齐（最左/最右格凸出时侧边连成一体）；
+  // 顶部中间直边贴主灰条底部无缝；底部大圆角圆滑收尾。
   // height 比 DOT_ZONE 多 1，补偿 top 上移的 1px，保证底部位置不变
   dayBandTall: {
     position: 'absolute', height: DOT_ZONE + 1,
     backgroundColor: '#F2F3F6',
+    borderTopLeftRadius: 10, borderTopRightRadius: 10,
     borderBottomLeftRadius: 10, borderBottomRightRadius: 10,
   },
   // 选中态的液体滑块：尺寸/圆角显式写死，避免安卓上圆角丢失变成方块
