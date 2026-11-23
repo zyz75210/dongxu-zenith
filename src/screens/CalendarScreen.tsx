@@ -667,10 +667,70 @@ function CalendarScreen({
       streak,
       weekDone: week.filter((s) => s.completed).length,
       weekTotal: week.length,
-      /** 火焰是否点亮：只看「真的坚持了几天」。排了计划但一次没完成不算，否则这个数字就失真了 */
-      lit: streak > 0,
+      /** 选中的周是不是「今天所在的那一周」：决定右边说「本周」还是「当周」 */
+      isThisWeek: todayKey >= mk && todayKey <= sk,
+      /** 选中日期相对今天的位置：左边那句短话的语义完全由它决定 */
+      isPastDay: dayKey < todayKey,
+      isFutureDay: dayKey > todayKey,
     };
-  }, [schedules, sel]);
+  }, [schedules, sel, todayKey, dayKey]);
+
+  /**
+   * 数据条左侧那句短话。
+   * 今天 → 说「当下的连续战绩」；历史 → 说「那天的结果」；未来 → 只说「安排」。
+   * 三种时间态必须分开，否则会出现「三个月前的那天，你已坚持 12 天」这种驴唇不对马嘴。
+   */
+  const leftView = useMemo((): {
+    icon: React.ComponentProps<typeof Ionicons>['name'];
+    color: string;
+    prefix?: string;
+    num?: string;
+    unit?: string;
+    text?: string;
+    sub: string;
+  } => {
+    const doneCount = daySchedules.filter((s) => s.completed).length;
+    const total = daySchedules.length;
+
+    // 未来：还没发生，只陈述排了几条，不做任何评价
+    if (statsBar.isFutureDay) {
+      return total > 0
+        ? { icon: 'calendar-outline', color: C.primary, text: `已安排 ${total} 条`, sub: '到时候别忘啦' }
+        : { icon: 'calendar-outline', color: C.gray, text: '还没安排', sub: '可以提前排一下' };
+    }
+
+    // 历史：说那天的结果
+    if (statsBar.isPastDay) {
+      // 那天压根没排训练——别说「忙忘啦」，那是在冤枉人
+      if (total === 0) {
+        return { icon: 'remove-outline', color: C.gray, text: '没安排', sub: '那天休息也挺好' };
+      }
+      if (doneCount === total) {
+        return { icon: 'checkmark-circle', color: C.done, text: '全部完成', sub: '真棒，这天练到了' };
+      }
+      if (doneCount > 0) {
+        return {
+          icon: 'checkmark-circle-outline', color: C.halfUp,
+          text: `完成 ${doneCount}/${total}`, sub: '还差一点，下次补上',
+        };
+      }
+      return { icon: 'ellipse-outline', color: C.gray, text: '没完成', sub: '忙忘啦，有点可惜' };
+    }
+
+    // 今天：当下的连续战绩
+    if (statsBar.streak > 0) {
+      return {
+        icon: 'flame', color: C.fire,
+        prefix: '已坚持', num: String(statsBar.streak), unit: '天',
+        sub: '保持住，加油哦',
+      };
+    }
+    return {
+      icon: 'flame-outline', color: C.gray,
+      text: '今天开始',
+      sub: statsBar.weekTotal === 0 ? '该运动啦' : '练完就点亮',
+    };
+  }, [daySchedules, statsBar]);
 
   const prevDate = new Date(view.y, view.m - 1, 1);
   const nextDate = new Date(view.y, view.m + 1, 1);
@@ -947,48 +1007,49 @@ function CalendarScreen({
           </Animated.View>
         </View>
 
-        {/* 数据条：连续打卡 + 本周训练进度，放在月历和日程列表之间 */}
+        {/* 数据条：左侧说「今天/那天怎么样了」，右侧说「这一周练了几次」 */}
         <View style={styles.statsBar}>
           <View style={styles.statsLeft}>
             <View style={styles.statsFireRow}>
               {/*
-                用 App 同款 Ionicons 扁平火焰替代 emoji（emoji 是全彩写实风，和扁平界面不是一套）。
-                点亮 = 实心 + 燃烧橙；未点亮 = 线性 + 灰，比只换颜色更容易看出「点没点起来」。
+                用 App 同款 Ionicons 扁平图标替代 emoji（emoji 是全彩写实风，和扁平界面不是一套）。
+                图标形状本身就区分状态：火焰=当下战绩、勾=完成、空圈=没完成、横线=没安排。
               */}
-              <Ionicons
-                name={statsBar.lit ? 'flame' : 'flame-outline'}
-                size={17}
-                color={statsBar.lit ? C.fire : C.gray}
-              />
+              <Ionicons name={leftView.icon} size={17} color={leftView.color} />
               <View style={styles.statsStreakPair}>
-                {statsBar.streak > 0 ? (
+                {leftView.num !== undefined ? (
                   <>
-                    {/* 数字前加「已坚持」：光看「12 天」不知道是什么的 12 天 */}
-                    <Text style={styles.statsStreakPrefix}>已坚持</Text>
-                    <Text style={styles.statsStreakNum}>{statsBar.streak}</Text>
-                    <Text style={styles.statsStreakLabel}>天</Text>
+                    {leftView.prefix ? (
+                      <Text style={styles.statsStreakPrefix}>{leftView.prefix}</Text>
+                    ) : null}
+                    <Text style={styles.statsStreakNum}>{leftView.num}</Text>
+                    {leftView.unit ? (
+                      <Text style={styles.statsStreakLabel}>{leftView.unit}</Text>
+                    ) : null}
                   </>
                 ) : (
-                  // 0 天不写「已坚持 0 天」，那是在打击人；换成一句邀请
-                  <Text style={styles.statsStreakStart}>今天开始</Text>
+                  <Text style={styles.statsStreakStart}>{leftView.text}</Text>
                 )}
               </View>
             </View>
-            <Text style={styles.statsStreakSub}>
-              {statsBar.streak > 0
-                ? '保持住，加油哦'
-                : (statsBar.weekTotal === 0 ? '该运动啦' : '练完就点亮')}
-            </Text>
+            <Text style={styles.statsStreakSub}>{leftView.sub}</Text>
           </View>
 
           <View style={styles.statsRight}>
             {statsBar.weekTotal === 0 ? (
-              // 本周还没排训练：不显示 0/0 和空进度条，改成引导文案
-              <Text style={styles.statsEmpty}>该运动啦 ›</Text>
+              // 这一周没排训练：不显示 0/0 和空进度条，改成对应时间态的引导
+              <Text style={styles.statsEmpty}>
+                {statsBar.isThisWeek
+                  ? '该运动啦 ›'
+                  : (statsBar.isPastDay ? '那周没安排' : '还没排')}
+              </Text>
             ) : (
               <>
                 <View style={styles.statsWeekRow}>
-                  <Text style={styles.statsWeekText}>本周训练</Text>
+                  {/* 选中历史周还说「本周训练」就是错的，按是否本周切换措辞 */}
+                  <Text style={styles.statsWeekText}>
+                    {statsBar.isThisWeek ? '本周训练' : '当周训练'}
+                  </Text>
                   <Text style={styles.statsWeekNum}>
                     {statsBar.weekDone}<Text style={styles.statsWeekTotal}>/{statsBar.weekTotal}</Text>
                   </Text>
