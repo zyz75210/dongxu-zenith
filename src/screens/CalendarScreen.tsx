@@ -2,7 +2,7 @@ import React, {
   memo, useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
 import {
-  Alert, Animated, Dimensions, Easing, Image, PanResponder, ScrollView, StyleSheet,
+  Animated, Dimensions, Easing, Image, PanResponder, ScrollView, StyleSheet,
   Text, TouchableOpacity, View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -41,8 +41,6 @@ type Props = {
   onGoTrain?: () => void;
   /** 长按月历某天：直接在这天新建训练 */
   onAddAt?: (d: { y: number; m: number; d: number }) => void;
-  /** 长按日程卡片确认后删除：只删数据，不跳页 */
-  onDeleteSchedule?: (id: string) => void;
 };
 
 // 月历日期数字统一颜色：比黑色淡一点的深灰
@@ -356,15 +354,12 @@ const MonthGrid = memo(function MonthGrid({
 function CalendarScreen({
   onOpenProfile, onOpenAdd, onOpenDetail, onOpenPicker, onSelectDate,
   onOpenSettings, onOpenHistory, schedules, initialDate, onToggleComplete, avatar,
-  onGoTrain, onAddAt, onDeleteSchedule,
+  onGoTrain, onAddAt,
 }: Props) {
   const today = useMemo(() => new Date(), []);
   // 长按新建：用 ref 中转，保持 pressDayLong 的 useCallback 引用稳定
   const addAtRef = useRef(onAddAt);
   addAtRef.current = onAddAt;
-  // 长按删除：同样用 ref 中转，卡片上的长按回调保持稳定
-  const delRef = useRef(onDeleteSchedule);
-  delRef.current = onDeleteSchedule;
   // 首次进入用 initialDate（新日程保存后跳到那天），没传就用今天
   const initDate = useMemo(
     () => initialDate ?? { y: today.getFullYear(), m: today.getMonth(), d: today.getDate() },
@@ -734,19 +729,6 @@ function CalendarScreen({
     addAtRef.current?.({ y, m, d: cell.day });
   }, []);
 
-  /** 长按日程卡片：删除不可逆，先确认再删，不给「试试看」的机会 */
-  const confirmDelete = useCallback((item: Schedule) => {
-    if (!delRef.current) return;
-    Alert.alert(
-      '删除这条日程？',
-      `「${item.title}」删除后无法恢复。`,
-      [
-        { text: '取消', style: 'cancel' },
-        { text: '删除', style: 'destructive', onPress: () => delRef.current?.(item.id) },
-      ],
-    );
-  }, []);
-
   /** 松手确认切月：先平滑滑到相邻页，再整棵重挂（月份 + 归零位移 + epoch 同批提交） */
   const commitPage = (dir: 1 | -1, from: number) => {
     const w = gridWRef.current || 300;
@@ -1034,7 +1016,6 @@ function CalendarScreen({
               onPress={() => onOpenDetail(s)}
               onToggle={() => onToggleComplete(s.id)}
               onGoTrain={onGoTrain}
-              onLongPress={() => confirmDelete(s)}
             />
           ))
         ) : (
