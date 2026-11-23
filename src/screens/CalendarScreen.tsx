@@ -46,10 +46,10 @@ const WEEKEND_COLOR = '#FF9A45';
 const DIM_COLOR = '#C4C9D2';
 // 网格行高与行数（最多 6 行，固定高度避免切换月份时跳动）
 // 行高 = 日期数字区(46) + 下方圆点区(DOT_ZONE)，给训练圆点留出空间
-const ROW_H = 54;
+const ROW_H = 58;
 const MAX_ROWS = 6;
 /** 日期数字下方预留的圆点区高度（灰条有训练时才向下延伸到这一段） */
-const DOT_ZONE = 8;
+const DOT_ZONE = 12;
 
 /** 选中圆（液体滑块）的直径，和原来 dayBox 一致 */
 const BLOB = 34;
@@ -204,29 +204,21 @@ const MonthGrid = memo(function MonthGrid({
   }, [rows]);
 
   // 有训练的日期：在底灰条(34)下方多延伸一段(DOT_ZONE)，露出放圆点的空间。
-  // 也按"连续有训练的日期"合并成段，一次算好，渲染时不新建对象。
+  // 逐格渲染（每个有训练的日期一个独立凸出块），每个块带圆角，视觉是平滑的圆角凸台。
   const tallBands = useMemo(() => {
     const out: { key: string; top: number; left: number; width: number }[] = [];
     rows.forEach((row, r) => {
-      let s = -1;
-      const push = (start: number, end: number) => {
-        out.push({
-          key: `t-${r}-${start}`,
-          top: r * ROW_H + 6 + 34,
-          left: (start / 7) * 100,
-          width: ((end - start + 1) / 7) * 100,
-        });
-      };
       row.forEach((cell, i) => {
         const has = cell !== null && cell.type === 'cur'
           && (dotsByDay.get(dateKey(y, m, cell.day))?.length ?? 0) > 0;
-        if (has && s === -1) s = i;
-        if (!has && s !== -1) {
-          push(s, i - 1);
-          s = -1;
-        }
+        if (!has) return;
+        out.push({
+          key: `t-${r}-${i}`,
+          top: r * ROW_H + 6 + 34,
+          left: (i / 7) * 100,
+          width: (1 / 7) * 100,
+        });
       });
-      if (s !== -1) push(s, 6);
     });
     return out;
   }, [rows, dotsByDay, y, m]);
@@ -962,11 +954,10 @@ const styles = StyleSheet.create({
     position: 'absolute', height: 34,
     backgroundColor: '#F2F3F6', borderRadius: 10,
   },
-  // 有训练的日期，在底灰条下方延伸的一段（放圆点用），圆角与底灰条衔接
+  // 有训练的日期，在底灰条下方延伸的圆角凸台（放圆点用），四周倒角避免台阶突兀
   dayBandTall: {
     position: 'absolute', height: DOT_ZONE,
-    backgroundColor: '#F2F3F6',
-    borderBottomLeftRadius: 10, borderBottomRightRadius: 10,
+    backgroundColor: '#F2F3F6', borderRadius: 8,
   },
   // 选中态的液体滑块：尺寸/圆角显式写死，避免安卓上圆角丢失变成方块
   // 位置完全由 translateX / translateY 决定（left/top 固定 0），方便用 native driver
@@ -987,8 +978,9 @@ const styles = StyleSheet.create({
     marginTop: BLOB_TOP,
   },
   // 训练圆点：日期数字正下方，横排，同类聚合（每种类型一个点，最多 3 个）
-  dotRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 3, height: 4 },
-  dotRowEmpty: { height: 7 },
+  // 圆点垂直居中在「蓝圆底(40)」与「凸出灰条底(52)」之间，中心落在 46
+  dotRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 4, height: 4 },
+  dotRowEmpty: { height: 8 },
   dot: { width: 4, height: 4, borderRadius: 2 },
   // 三个静态文字样式：日期数字统一深灰；选中后加粗；液滴到位后再变白
   // （Android 中文对数字字重响应差，用 'bold' 更稳；字号微增让加粗更明显）
