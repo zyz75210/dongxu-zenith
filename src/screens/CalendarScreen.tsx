@@ -13,6 +13,7 @@ import {
   timeToMinutes, weekdayIndex,
 } from '../utils/date';
 import ScheduleCapsule, { TYPE_NAME } from '../components/ScheduleCapsule';
+import StreakFlame, { streakMilestone, streakSub } from '../components/StreakFlame';
 
 type Props = {
   /** 全部日程（本页按选中日期过滤并排序） */
@@ -715,6 +716,8 @@ function CalendarScreen({
     unit?: string;
     text?: string;
     sub: string;
+    /** 有值就表示「这一档用自绘火焰」，值即轮廓形态；其余状态仍用 Ionicons */
+    flame?: 'solid' | 'linear';
   } => {
     const total = daySchedules.length;
     const doneCount = daySchedules.filter((s) => isFinished(s, todayKey)).length;
@@ -756,19 +759,21 @@ function CalendarScreen({
     }
 
     // 今天：火焰三态，严格对应「今天做到了没有」
-    // ① 今天已经算完成（训练勾了，或今天本来就是休息日）→ 实心橙，真的点亮了
+    // ① 今天已经算完成（训练勾了，或今天本来就是休息日）→ 实心，真的点亮了
     if (doneCount > 0) {
       const restOnlyToday = trainTotal === 0 && total > 0;
       return {
-        icon: 'flame', color: C.fire,
+        icon: 'flame', color: C.fire, flame: 'solid',
         prefix: '已坚持', num: String(statsBar.streak), unit: '天',
-        sub: restOnlyToday ? '该歇就歇，才练得久' : '稳，明天见',
+        // 刚跨过 10 / 30 / 60 / 100 的那一天说一句专属的，第二天回落到档位句
+        sub: streakMilestone(statsBar.streak)
+          ?? (restOnlyToday ? '该歇就歇，才练得久' : streakSub(statsBar.streak)),
       };
     }
-    // ② 今天还没完成，但有连续记录 → 线性橙，亮着但没实心：提醒今天还差一次
+    // ② 今天还没完成，但有连续记录 → 档位色线性，亮着但没实心：提醒今天还差一次
     if (statsBar.streak > 0) {
       return {
-        icon: 'flame-outline', color: C.fire,
+        icon: 'flame-outline', color: C.fire, flame: 'linear',
         prefix: '已坚持', num: String(statsBar.streak), unit: '天',
         sub: '今天补上，别断了',
       };
@@ -780,14 +785,14 @@ function CalendarScreen({
     //   所以改成问句，指向下方那三个训练色块（选项就在眼前，不用想）
     if (trainTotal > 0) {
       return {
-        icon: 'flame-outline', color: C.gray,
+        icon: 'flame-outline', color: C.gray, flame: 'linear',
         text: '今天还没动',
         sub: '练完来打个勾',
       };
     }
     if (statsBar.weekTotal > 0) {
       return {
-        icon: 'flame-outline', color: C.gray,
+        icon: 'flame-outline', color: C.gray, flame: 'linear',
         text: '今天空着',
         sub: '想动就加一条',
       };
@@ -796,7 +801,7 @@ function CalendarScreen({
     // （对第一次打开的人说「太久没见」是假的，第一次哪来的「久」）
     if (statsBar.daysSinceActive >= 5) {
       return {
-        icon: 'flame-outline', color: C.gray,
+        icon: 'flame-outline', color: C.gray, flame: 'linear',
         text: '好久不见',
         sub: '先走两步？',
       };
@@ -804,14 +809,14 @@ function CalendarScreen({
     // 从来没动过：第一次来，别给压力，也别问「练哪个」——他还不知道能练什么，选项在下面
     if (statsBar.daysSinceActive < 0) {
       return {
-        icon: 'flame-outline', color: C.gray,
+        icon: 'flame-outline', color: C.gray, flame: 'linear',
         text: '第一次来？',
         sub: '动一下就好',
       };
     }
     // 有记录、本周也空着，只是今天还没动：他知道流程，直接问选哪个
     return {
-      icon: 'flame-outline', color: C.gray,
+      icon: 'flame-outline', color: C.gray, flame: 'linear',
       text: '今天练哪个',
       sub: '挑一项就行',
     };
@@ -1113,7 +1118,15 @@ function CalendarScreen({
                 用 App 同款 Ionicons 扁平图标替代 emoji（emoji 是全彩写实风，和扁平界面不是一套）。
                 图标形状本身就区分状态：火焰=当下战绩、勾=完成、空圈=没完成、横线=没安排。
               */}
-              <Ionicons name={leftView.icon} size={17} color={leftView.color} />
+              {leftView.flame ? (
+                <StreakFlame
+                  streak={statsBar.streak}
+                  doneToday={leftView.flame === 'solid'}
+                  size={17}
+                />
+              ) : (
+                <Ionicons name={leftView.icon} size={17} color={leftView.color} />
+              )}
               <View style={styles.statsStreakPair}>
                 {leftView.num !== undefined ? (
                   <>
