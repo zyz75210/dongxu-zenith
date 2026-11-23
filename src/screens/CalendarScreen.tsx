@@ -9,7 +9,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { C, WEEK_DAYS } from '../theme';
 import { Schedule } from '../data';
 import {
-  buildMonthCells, Cell, dateKey, getISOWeek, sameDay, timeToMinutes, weekdayIndex,
+  buildMonthCells, Cell, dateKey, sameDay, timeToMinutes, weekdayIndex,
 } from '../utils/date';
 import ScheduleCapsule from '../components/ScheduleCapsule';
 
@@ -40,6 +40,10 @@ type Props = {
 
 // 月历日期数字统一颜色：比黑色淡一点的深灰
 const DAY_TEXT_COLOR = '#2F3239';
+// 周末（周六、周日）的活力淡橙
+const WEEKEND_COLOR = '#FF9A45';
+// 跨月补位日期（上月末尾）的淡化灰
+const DIM_COLOR = '#C4C9D2';
 // 网格行高与行数（最多 6 行，固定高度避免切换月份时跳动）
 const ROW_H = 46;
 const MAX_ROWS = 6;
@@ -66,17 +70,23 @@ const EST_W = Dimensions.get('window').width - 40;
  * 所以一次选中只有"原来的那天"和"新的那天"两格真正重渲染。
  */
 const DayCell = memo(function DayCell({
-  cell, gy, gm, isSel, paint, onPressDay,
+  cell, gy, gm, col, isSel, paint, onPressDay,
 }: {
   cell: Cell;
   gy: number;
   gm: number;
+  /** 列下标 0-6（0=周一 … 6=周日），用来判断周末和跨月淡化 */
+  col: number;
   isSel: boolean;
   paint: boolean;
   onPressDay: (cell: Cell, gy: number, gm: number) => void;
 }) {
   // 三种状态用三个静态样式对象，不再每次渲染新建 { color } 对象
-  const textStyle = !isSel ? styles.dayOff : paint ? styles.dayOn : styles.dayWait;
+  // 选中的数字仍走原来的"变白"逻辑（dayWait/dayOn 不动，液体滑块动画一行不碰）。
+  // 只有"非选中"态按 周末橙 / 跨月淡化 / 普通深灰 三种静态样式区分。
+  const textStyle = !isSel
+    ? (cell.type === 'prev' ? styles.dayDim : (col >= 5 ? styles.dayWeekend : styles.dayOff))
+    : paint ? styles.dayOn : styles.dayWait;
   return (
     <TouchableOpacity
       style={styles.cell}
@@ -244,6 +254,7 @@ const MonthGrid = memo(function MonthGrid({
                 cell={cell}
                 gy={y}
                 gm={m}
+                col={i}
                 isSel={cell.type === 'cur' && cell.day === selDay}
                 paint={paint}
                 onPressDay={onPressDay}
@@ -522,7 +533,6 @@ function CalendarScreen({
 
   const selDate = new Date(sel.y, sel.m, sel.d);
   const isToday = sameDay(selDate, today);
-  const weekNo = getISOWeek(selDate);
   const dayKey = dateKey(sel.y, sel.m, sel.d);
   // 今天：用来判断某条日程是否已经"隔天超时"
   const todayKey = dateKey(today.getFullYear(), today.getMonth(), today.getDate());
@@ -677,7 +687,6 @@ function CalendarScreen({
               <Text style={styles.month}>{view.y}年{view.m + 1}月</Text>
               <Ionicons name="chevron-down" size={14} color={C.text} style={styles.monthCaret} />
             </View>
-            <Text style={styles.weekNo}>第 {weekNo} 周</Text>
           </TouchableOpacity>
 
           <View style={styles.headerIcons}>
@@ -712,7 +721,7 @@ function CalendarScreen({
         {/* 星期标题 */}
         <View style={styles.weekRow}>
           {WEEK_DAYS.map((w, i) => (
-            <Text key={i} style={styles.weekText}>{w}</Text>
+            <Text key={i} style={[styles.weekText, i >= 5 && styles.weekTextWeekend]}>{w}</Text>
           ))}
         </View>
 
@@ -792,16 +801,21 @@ function CalendarScreen({
 
         {/* 当天日程标题 */}
         <View style={styles.listHeader}>
-          <View>
+          <View style={styles.listTitleRow}>
             <Text style={styles.listTitle}>
               {sel.m + 1}月{sel.d}日 星期{WEEK_DAYS[weekdayIndex(selDate)]}
             </Text>
-            <Text style={styles.listSub}>
-              {dayCount > 0
-                ? `${isToday ? '今天 · ' : ''}${dayCount} 个日程`
-                : '暂无日程'}
-            </Text>
+            {isToday && (
+              <View style={styles.todayBadge}>
+                <Text style={styles.todayBadgeText}>今天</Text>
+              </View>
+            )}
           </View>
+          <Text style={styles.listSub}>
+            {dayCount > 0
+              ? `${dayCount} 个日程`
+              : '暂无日程'}
+          </Text>
           <TouchableOpacity activeOpacity={0.7} onPress={onOpenHistory}>
             <Text style={styles.allLink}>全部</Text>
           </TouchableOpacity>
@@ -821,7 +835,7 @@ function CalendarScreen({
         ) : (
           <View style={styles.empty}>
             <Ionicons name="calendar-outline" size={20} color={C.gray} />
-            <Text style={styles.emptyText}>这一天还没有安排</Text>
+            <Text style={styles.emptyText}>这天还没安排，点 + 加个训练</Text>
           </View>
         )}
       </ScrollView>
@@ -845,10 +859,9 @@ const styles = StyleSheet.create({
   monthRow: { flexDirection: 'row', alignItems: 'center' },
   month: { fontSize: 17, fontWeight: '600', color: C.text },
   monthCaret: { marginLeft: 4, marginTop: 1 },
-  weekNo: { fontSize: 11, color: C.gray, marginTop: 1 },
   headerIcons: { flexDirection: 'row', gap: 10, marginLeft: 'auto' },
   iconCircle: {
-    width: 34, height: 34, borderRadius: 17,
+    width: 36, height: 36, borderRadius: 18,
     backgroundColor: C.soft, alignItems: 'center', justifyContent: 'center',
   },
 
@@ -864,6 +877,7 @@ const styles = StyleSheet.create({
 
   weekRow: { flexDirection: 'row', marginBottom: 6 },
   weekText: { flex: 1, textAlign: 'center', fontSize: 12, color: C.gray },
+  weekTextWeekend: { color: WEEKEND_COLOR, fontWeight: 'bold' },
 
   gridWrap: { height: ROW_H * MAX_ROWS, overflow: 'hidden', marginBottom: 14 },
   gridTrack: { flexDirection: 'row' },
@@ -889,7 +903,10 @@ const styles = StyleSheet.create({
   },
   // 三个静态文字样式：日期数字统一深灰；选中后加粗；液滴到位后再变白
   // （Android 中文对数字字重响应差，用 'bold' 更稳；字号微增让加粗更明显）
+  // 非选中态再按 周末橙 / 跨月淡化 区分，选中逻辑（dayWait/dayOn）保持原样
   dayOff: { fontSize: 14, color: DAY_TEXT_COLOR },
+  dayWeekend: { fontSize: 14, fontWeight: 'bold', color: WEEKEND_COLOR },
+  dayDim: { fontSize: 14, color: DIM_COLOR },
   dayWait: { fontSize: 15, fontWeight: 'bold', color: DAY_TEXT_COLOR },
   dayOn: { fontSize: 15, fontWeight: 'bold', color: C.white },
 
@@ -904,7 +921,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     marginBottom: 12,
   },
+  listTitleRow: { flexDirection: 'row', alignItems: 'center' },
   listTitle: { fontSize: 15, fontWeight: '600', color: C.text },
+  todayBadge: {
+    marginLeft: 8, paddingHorizontal: 7, paddingVertical: 2,
+    borderRadius: 999, backgroundColor: '#EAF1FE',
+  },
+  todayBadgeText: { fontSize: 11, color: C.primary, fontWeight: '500' },
   listSub: { fontSize: 11, color: C.gray, marginTop: 3 },
   allLink: { fontSize: 12, color: C.primary },
 
