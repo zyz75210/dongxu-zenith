@@ -636,13 +636,13 @@ function CalendarScreen({
   }, [schedules]);
 
   // 连续打卡天数 + 本周训练统计（数据条用），全部由真实日程即时算
+  // 「本周」跟随当前选中日期所在的周（周一~周日），翻到哪一周就统计哪一周
   const statsBar = useMemo(() => {
     const done = schedules.filter((s) => s.completed);
     const streak = completedStreak(done.map((s) => s.date));
-    // 本周（周一 ~ 周日）范围
-    const now = new Date();
-    const wd = (now.getDay() + 6) % 7; // 0=周一 … 6=周日
-    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - wd);
+    const base = new Date(sel.y, sel.m, sel.d);
+    const wd = (base.getDay() + 6) % 7; // 0=周一 … 6=周日
+    const monday = new Date(sel.y, sel.m, sel.d - wd);
     const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
     const mk = dateKeyOf(monday);
     const sk = dateKeyOf(sunday);
@@ -652,7 +652,7 @@ function CalendarScreen({
       weekDone: week.filter((s) => s.completed).length,
       weekTotal: week.length,
     };
-  }, [schedules]);
+  }, [schedules, sel]);
 
   const prevDate = new Date(view.y, view.m - 1, 1);
   const nextDate = new Date(view.y, view.m + 1, 1);
