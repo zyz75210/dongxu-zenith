@@ -998,7 +998,7 @@ function CalendarScreen({
           </View>
           <Text style={styles.listSub}>
             {dayCount > 0
-              ? `${dayCount} 个日程`
+              ? `${dayCount} 个日程 · 点开看详情`
               : '暂无日程'}
           </Text>
           <TouchableOpacity activeOpacity={0.7} onPress={onOpenHistory}>
