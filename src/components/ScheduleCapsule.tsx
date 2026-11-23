@@ -17,13 +17,16 @@ type Props = {
   onPress: () => void;
   /** 点右侧类型胶囊：切换完成状态 */
   onToggle: () => void;
+  /** 可选：点「去训练」入口（仅主页当天列表传，历史页不传就不显示） */
+  onGoTrain?: () => void;
 };
 
 /**
  * 日程胶囊 —— 主页当天列表和历史日程共用同一个组件，
  * 这样两处的圆角、内边距、字号、状态胶囊完全一致（改一处两边同步）。
+ * 「去训练」入口只在传了 onGoTrain 时显示（主页），历史页不显示。
  */
-function ScheduleCapsule({ item, todayKey, onPress, onToggle }: Props) {
+function ScheduleCapsule({ item, todayKey, onPress, onToggle, onGoTrain }: Props) {
   const state: PillState = item.completed
     ? 'done'
     : item.date < todayKey
@@ -40,7 +43,19 @@ function ScheduleCapsule({ item, todayKey, onPress, onToggle }: Props) {
         >
           {item.title}
         </Text>
-        <Text style={styles.time}>{item.start} — {item.end}</Text>
+        <View style={styles.metaRow}>
+          <Text style={styles.time}>{item.start} — {item.end}</Text>
+          {onGoTrain && (
+            <TouchableOpacity
+              style={styles.goTrain}
+              activeOpacity={0.6}
+              onPress={onGoTrain}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.goTrainText}>去训练 ›</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
       <ScheduleStatusPill
         label={item.completed ? '已完成' : (item.tag || TYPE_NAME[item.type])}
@@ -65,7 +80,10 @@ const styles = StyleSheet.create({
   title: { fontSize: 13, fontWeight: '500', color: C.text },
   // 已完成：标题删除线 + 转灰（完成态三重信号之一）
   titleDone: { textDecorationLine: 'line-through', color: C.gray },
-  time: { fontSize: 11, color: C.gray, marginTop: 3 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 3 },
+  time: { fontSize: 11, color: C.gray },
+  goTrain: { marginLeft: 'auto', paddingLeft: 8 },
+  goTrainText: { fontSize: 12, color: C.primary, fontWeight: '500' },
 });
 
 // 列表里可能有几十条，memo 让没变化的那几条跳过重渲染

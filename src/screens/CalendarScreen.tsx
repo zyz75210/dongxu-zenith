@@ -37,6 +37,8 @@ type Props = {
   onOpenHistory: () => void;
   /** 头像 uri：改过资料后首页一起更新 */
   avatar?: string;
+  /** 点卡片「去训练」入口：本轮只弹提示 */
+  onGoTrain?: () => void;
 };
 
 // 月历日期数字统一颜色：比黑色淡一点的深灰
@@ -339,6 +341,7 @@ const MonthGrid = memo(function MonthGrid({
 function CalendarScreen({
   onOpenProfile, onOpenAdd, onOpenDetail, onOpenPicker, onSelectDate,
   onOpenSettings, onOpenHistory, schedules, initialDate, onToggleComplete, avatar,
+  onGoTrain,
 }: Props) {
   const today = useMemo(() => new Date(), []);
   // 首次进入用 initialDate（新日程保存后跳到那天），没传就用今天
@@ -967,6 +970,7 @@ function CalendarScreen({
               todayKey={todayKey}
               onPress={() => onOpenDetail(s)}
               onToggle={() => onToggleComplete(s.id)}
+              onGoTrain={onGoTrain}
             />
           ))
         ) : (
