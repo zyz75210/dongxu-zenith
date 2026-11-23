@@ -47,14 +47,13 @@ export function wheelTick() {
 }
 
 /**
- * 勾选完成：一下明确的成功触感（力度比滚轮重一档）。
+ * 勾选完成：一下明确的成功触感（力度比滚轮重两档）。
  * 只在「变成已完成」时调用（取消完成不震），避免噪音。
- * - Android：impactAsync(Medium)，比 Confirm 更沉更明显
- * - iOS：impactAsync(Medium)，比 notification Success 更实
+ * 用 Heavy 冲击感，打卡完成这个关键动作要有实感。
  */
 export function completeTick() {
   try {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
   } catch {
     // 设备不支持触感：静默降级
   }
