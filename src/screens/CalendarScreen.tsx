@@ -2,7 +2,7 @@ import React, {
   memo, useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
 import {
-  Animated, Dimensions, Easing, Image, Keyboard, PanResponder, ScrollView, StyleSheet,
+  Animated, Dimensions, Easing, Image, Keyboard, PanResponder, StyleSheet,
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -79,6 +79,11 @@ const isTraining = (s: Schedule) => s.type !== 'rest';
 // 行高 = 日期数字区(46) + 下方圆点区(DOT_ZONE)，给训练圆点留出空间
 const ROW_H = 54;
 const MAX_ROWS = 6;
+/**
+ * 月历从 6 行收到 1 行，需要列表滚动这么远。
+ * 取 5 行的高度：手指走多少，月历就收多少，1:1 跟手，不用二次换算。
+ */
+const COLLAPSE_H = (MAX_ROWS - 1) * ROW_H;
 /** 日期数字下方预留的圆点区高度（灰条有训练时才向下延伸到这一段） */
 const DOT_ZONE = 12;
 
@@ -411,6 +416,38 @@ function CalendarScreen({
   const [gridW, setGridW] = useState(EST_W);
   const gridWRef = useRef(gridW);
   gridWRef.current = gridW;
+
+  /* ---------------- 周视图吸顶：下面列表滚多少，上面月历就收多少 ---------------- */
+  /** 下方列表的滚动位置（JS 驱动：height 不能用原生驱动） */
+  const scrollY = useRef(new Animated.Value(0)).current;
+  /**
+   * 吸顶层展开时的完整高度，由内容自己量出来（头像行 + 月份切换 + 星期 + 6 行网格）。
+   * 不写死常量：以后谁改了字号或间距，这里不用跟着改。
+   */
+  const [calContentH, setCalContentH] = useState(473);
+  /** 选中日期在网格里的行号：收起来之后要停在它这一行 */
+  const selRow = useMemo(
+    () => blobPosFor(gridW, sel.y, sel.m, sel.d).row,
+    [gridW, sel.y, sel.m, sel.d],
+  );
+  /** 吸顶层高度：完整高度 → 完整高度 - 5 行（收到只剩一行周条） */
+  const calH = useMemo(
+    () => scrollY.interpolate({
+      inputRange: [0, COLLAPSE_H],
+      outputRange: [calContentH, calContentH - COLLAPSE_H],
+      extrapolate: 'clamp',
+    }),
+    [scrollY, calContentH],
+  );
+  /** 网格整体上移：收起来后让「选中那一行」正好落在吸顶层底部（第 0 行时不动） */
+  const gridShiftY = useMemo(
+    () => scrollY.interpolate({
+      inputRange: [0, COLLAPSE_H],
+      outputRange: [0, -selRow * ROW_H],
+      extrapolate: 'clamp',
+    }),
+    [scrollY, selRow],
+  );
 
   /** 当前选中日期 / 正在显示的月份，供稳定回调里读取最新值 */
   const selRef = useRef(sel);
@@ -1006,7 +1043,20 @@ function CalendarScreen({
 
   return (
     <View style={styles.root}>
-      <ScrollView style={styles.screen} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      {/*
+        吸顶层：头像行 + 月份切换 + 星期 + 月历。
+        它绝对定位盖在列表之上（不占布局），高度随下方列表的滚动收缩 ——
+        这正是"吸附"的来源：列表正常滚，月历自己变矮，下面的内容就从它身下露出来。
+        坐标关系是 1:1 的（手指滚多少，内容走多少），不会出现滚动加速。
+      */}
+      <Animated.View style={[styles.calOverlay, { height: calH }]}>
+        <View
+          style={styles.calInner}
+          onLayout={(e) => {
+            const h = Math.round(e.nativeEvent.layout.height);
+            setCalContentH((prev) => (prev === h ? prev : h));
+          }}
+        >
         {/*
           顶部有两种形态：
           1. 默认：头像 + 月份（点开日期选择器）+ 搜索 / 设置
@@ -1139,12 +1189,18 @@ function CalendarScreen({
           ))}
         </View>
 
-        {/* 月历网格：横向排三个月，拖动时整条平移，实现跟手滑动 */}
-        <View
-          style={styles.gridWrap}
-          onLayout={(e) => setGridW(Math.round(e.nativeEvent.layout.width))}
-          {...pan.panHandlers}
-        >
+        {/*
+          月历自身上移：收起来之后，让「选中那一周」正好落在吸顶层底部的那一行里。
+          月历本身（三张网格、滑块、拖动切月）一个像素都没改，
+          只是整块被上移、超出部分由外层 calOverlay 裁掉，所以已有动画全部照原样跑。
+        */}
+        <Animated.View style={{ transform: [{ translateY: gridShiftY }] }}>
+          {/* 月历网格：横向排三个月，拖动时整条平移，实现跟手滑动 */}
+          <View
+            style={styles.gridWrap}
+            onLayout={(e) => setGridW(Math.round(e.nativeEvent.layout.width))}
+            {...pan.panHandlers}
+          >
           <Animated.View
             key={`track-${epoch}`}
             style={[
@@ -1218,6 +1274,23 @@ function CalendarScreen({
             </View>
           </Animated.View>
         </View>
+        </Animated.View>
+        </View>
+      </Animated.View>
+
+      {/* 下方滚动区：数据条 + 当天列表。它滚动多少，上面的月历就收多少 */}
+      <Animated.ScrollView
+        style={styles.screen}
+        // 顶部留出吸顶层的完整高度：内容正好从月历下沿开始，滚起来 1:1
+        contentContainerStyle={[styles.scroll, { paddingTop: calContentH }]}
+        showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          // height 不能用原生驱动，这里必须走 JS；受影响的只有吸顶层这一处
+          { useNativeDriver: false },
+        )}
+      >
 
         {/* 数据条：左侧说「今天/那天怎么样了」，右侧说「这一周练了几次」 */}
         <View style={styles.statsBar}>
@@ -1374,7 +1447,7 @@ function CalendarScreen({
             </TouchableOpacity>
           </View>
         )}
-      </ScrollView>
+      </Animated.ScrollView>
 
       {/*
         右下角加号只在「这天已经有日程」时出现。
@@ -1391,9 +1464,19 @@ function CalendarScreen({
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
-  screen: { flex: 1, backgroundColor: C.bg },
+  /**
+   * 吸顶层：绝对定位盖在列表之上，不参与布局 ——
+   * 所以月历变矮多少，列表就多露出多少，而列表自身的位置完全由滚动决定，不会加速。
+   */
+  calOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0,
+    overflow: 'hidden', backgroundColor: C.bg, zIndex: 2,
+  },
+  // 吸顶层的内容：量出来的高度就是展开时的完整高度
+  calInner: { paddingHorizontal: 20, paddingTop: 14 },
+  screen: { flex: 1, backgroundColor: C.bg, zIndex: 0 },
   // 底部留白必须大于「FAB 底距 22 + 自身 52」= 74，否则滚到底时最后一条的状态胶囊会被加号盖住
-  scroll: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 88 },
+  scroll: { paddingHorizontal: 20, paddingBottom: 88 },
 
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 18 },
   avatar: { width: 40, height: 40, borderRadius: 20 },
