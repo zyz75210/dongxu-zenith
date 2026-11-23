@@ -13,12 +13,17 @@ export type ScheduleType =
 export type Repeat = 'none' | 'daily' | 'weekly' | 'monthly';
 
 /**
- * 每种重复一次排几次（含起始那天）。
- * 数字是权衡：太少用户还没形成习惯就断了，太多会把日历塞满、也让人不敢点。
- * 每天/每周 8 次（一周多 / 两个月），每月 4 次（四个月）。
+ * 重复覆盖的时长：接下来一整年。
+ * 每天 = 365 条、每周 = 53 条、每月 = 13 条（都含起始那天）。
+ * 一年的量对训练打卡刚好：够长到能形成习惯，又不至于把日历填到三年后。
  */
-export const REPEAT_COUNT: Record<Repeat, number> = {
-  none: 1, daily: 8, weekly: 8, monthly: 4,
+export const REPEAT_SPAN_DAYS = 365;
+
+export const REPEAT_WORD: Record<Repeat, string> = {
+  none: '',
+  daily: '每天',
+  weekly: '每周',
+  monthly: '每月',
 };
 
 export type Schedule = {
@@ -34,8 +39,13 @@ export type Schedule = {
   remind?: boolean;
   /** 是否已完成：详情页圆形按钮切换 */
   completed?: boolean;
-  /** 重复规则：只在新建草稿里出现，落库时已被展开掉 */
-  repeat?: Repeat;
+  /**
+   * 重复频率。落库后实例上也会保留这个字段：
+   * 详情页要据此判断「这是一条每天/每周/每月的日程」，从而在删除时问"删整串还是删这一天"。
+   */
+  repeat?: Exclude<Repeat, 'none'>;
+  /** 同一批重复日程共享的系列 id，单条日程没有 */
+  seriesId?: string;
 };
 
 /** 个人资料：由 App.tsx 持有，"我的"页和编辑页共用一个来源；已随日程一起持久化 */

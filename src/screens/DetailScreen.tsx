@@ -13,6 +13,8 @@ type Props = {
   onBack: () => void;
   onEdit: (item: Schedule) => void;
   onDelete: (id: string) => void;
+  /** 删除整串重复日程（seriesId 相同的全部） */
+  onDeleteSeries: (seriesId: string) => void;
   onToggleComplete: (id: string) => void;
 };
 
@@ -20,14 +22,38 @@ const typeName: Record<string, string> = {
   rope: '跳绳', fitness: '体能', run: '跑步', rest: '休息',
 };
 
+/** 重复频率的中文说法：删除确认里要说清楚"这一串是每天还是每周" */
+const repeatName: Record<string, string> = {
+  daily: '每天', weekly: '每周', monthly: '每月',
+};
+
 function DetailScreen({
-  item, onBack, onEdit, onDelete, onToggleComplete,
+  item, onBack, onEdit, onDelete, onDeleteSeries, onToggleComplete,
 }: Props) {
+  /**
+   * 删除前先分清两种情况：
+   * - 普通日程 → 原来的二次确认
+   * - 重复日程 → 必须问「删整串还是只删这一天」，否则「每天重复」的人删一次会以为全清了，
+   *   或者只想跳过今天却把一整年都删掉。两种误会都很难挽回。
+   */
   const remove = () => {
-    Alert.alert('删除日程', `确定删除「${item.title}」吗？`, [
-      { text: '取消', style: 'cancel' },
-      { text: '删除', style: 'destructive', onPress: () => onDelete(item.id) },
-    ]);
+    const seriesId = item.seriesId;
+    if (!seriesId || !item.repeat) {
+      Alert.alert('删除日程', `确定删除「${item.title}」吗？`, [
+        { text: '取消', style: 'cancel' },
+        { text: '删除', style: 'destructive', onPress: () => onDelete(item.id) },
+      ]);
+      return;
+    }
+    Alert.alert(
+      '这是重复日程',
+      `「${item.title}」是${repeatName[item.repeat]}重复的。要删除整串，还是只删这一天？`,
+      [
+        { text: '删除全部', style: 'destructive', onPress: () => onDeleteSeries(seriesId) },
+        { text: '只删这一天', style: 'destructive', onPress: () => onDelete(item.id) },
+        { text: '取消', style: 'cancel' },
+      ],
+    );
   };
 
   // 真实日期与时长
@@ -49,6 +75,10 @@ function DetailScreen({
       label: '时间',
       value: `${item.start} - ${item.end}${durText ? `（${durText}）` : ''}`,
     },
+    // 重复日程多一行说明：让用户在按删除之前就知道这是"一串"，不是孤零零一条
+    ...(item.repeat
+      ? [{ icon: 'repeat-outline', label: '重复', value: `${repeatName[item.repeat]} · 一年内` }]
+      : []),
     { icon: 'pricetag-outline', label: '类型', value: typeName[item.type] ?? '其他' },
     { icon: 'notifications-outline', label: '提醒', value: item.remind ? '提前 15 分钟' : '不提醒' },
   ];

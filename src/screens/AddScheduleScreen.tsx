@@ -1,11 +1,11 @@
-import React, { memo, useEffect, useRef, useState } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { C, WEEK_DAYS } from '../theme';
-import { Schedule, ScheduleType, Repeat, REPEAT_COUNT } from '../data';
-import { dateKey, parseDateKey, weekdayIndex } from '../utils/date';
+import { Schedule, ScheduleType, Repeat } from '../data';
+import { dateKey, parseDateKey, weekdayIndex, repeatDates } from '../utils/date';
 
 type Props = {
   /** 是否可见：页面常驻不卸载，靠它判断"重新打开了"从而重置表单 */
@@ -184,6 +184,17 @@ function AddScheduleScreen({
   // 编辑老数据时标题可能超长（那时还没限制）：计数标红提醒，但不偷偷改用户内容
   const titleOver = unitsOf(title) > TITLE_UNITS;
 
+  /**
+   * 选了重复后一共会排几次（含起始那天）。
+   * 直接在按钮上写出来，别等保存完才让用户看到日历里多了一整年。
+   */
+  const repeatTotal = useMemo(
+    () => (repeat === 'none'
+      ? 1
+      : 1 + repeatDates(dateKey(date.y, date.m, date.d), repeat).length),
+    [repeat, date.y, date.m, date.d],
+  );
+
   // 点日期：复用首页那套年月日滚轮
   const openDate = () => onOpenDate(date, (y, m, d) => setDate({ y, m, d }));
   /**
@@ -237,8 +248,8 @@ function AddScheduleScreen({
       tag: typeLabel,
       note: note.trim() || undefined,
       remind,
-      // 编辑的是某一天的那一条，没有"重复"可言，只有新建才带
-      ...(editItem ? {} : { repeat }),
+      // 编辑的是某一天的那一条，没有"重复"可言；新建时只有选了重复才带这个字段
+      ...(editItem || repeat === 'none' ? {} : { repeat }),
     });
   };
 
@@ -421,7 +432,7 @@ function AddScheduleScreen({
               ? '保存修改'
               : repeat === 'none'
                 ? '保存日程'
-                : `保存日程 · 共 ${REPEAT_COUNT[repeat]} 次`}
+                : `保存日程 · 一年内 ${repeatTotal} 次`}
           </Text>
         </TouchableOpacity>
       </View>
@@ -464,7 +475,11 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.line, borderRadius: 12,
     backgroundColor: C.bg, paddingHorizontal: 14,
   },
-  fieldBlock: { paddingVertical: 10 },
+  /**
+   * 卡片里三块的上下内距必须一致：日期块、时间块、重复行都是 12。
+   * 之前是 10 / 10 / 12，看着「重复」那行比上面松一点，整张卡就不是一个节奏了。
+   */
+  fieldBlock: { paddingVertical: 12 },
   fieldLabel: { fontSize: 11, color: C.gray, marginBottom: 8 },
   fieldRow: { flexDirection: 'row', alignItems: 'center', height: 24 },
   fieldText: { flex: 1, fontSize: 13, color: C.text, marginLeft: 10 },
@@ -472,7 +487,7 @@ const styles = StyleSheet.create({
 
   // 开始 / 结束时间同一行，中间一条竖线
   timeRow: { flexDirection: 'row', alignItems: 'stretch' },
-  timeCell: { flex: 1, paddingVertical: 10 },
+  timeCell: { flex: 1, paddingVertical: 12 },
   vDivider: { width: 1, backgroundColor: C.line, marginVertical: 12, marginHorizontal: 10 },
 
   // 重复：左侧一个短标签，右边四个选项横排靠右。

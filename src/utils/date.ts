@@ -1,5 +1,7 @@
 // 日期工具：真实日历计算（周一开头，ISO 周数）
 
+import { REPEAT_SPAN_DAYS } from '../data';
+
 export type Cell = {
   day: number;
   // prev = 上月补位日期，cur = 本月日期
@@ -69,11 +71,12 @@ export function parseDateKey(key: string): { y: number; m: number; d: number } {
 }
 
 /**
- * 按重复规则算出「后续几次」的日期键（不含起始那天）。
+ * 按重复规则算出「后续所有」的日期键（不含起始那天），一直排到一年后为止。
  *
  * 为什么展开成具体日期，而不是存一条规则：
  * 日历、连续天数、本周完成率、报告页全都只认 date，展开成实例后它们一行都不用改。
- * 代价是系列里的每一条都是独立日程（删一条不会连带删），这也符合训练打卡的心智。
+ * 代价是系列里的每一条都是独立日程 —— 所以每条都带同一个 seriesId，
+ * 详情页删除时才知道"这一串有多少条、要不要一起删"。
  *
  * 月底要夹一下：1 月 31 日「每月」重复，2 月没有 31 号，落到 2 月 28/29 号，
  * 而不是滚到 3 月 3 号。
@@ -81,19 +84,24 @@ export function parseDateKey(key: string): { y: number; m: number; d: number } {
 export function repeatDates(
   base: string,
   freq: 'daily' | 'weekly' | 'monthly',
-  count: number,
 ): string[] {
   const { y, m, d } = parseDateKey(base);
+  // 一年内：起始日 + 365 天，最后一天是"起始日 + 364 天"
+  const end = new Date(y, m, d + REPEAT_SPAN_DAYS - 1);
   const out: string[] = [];
-  for (let i = 1; i < count; i++) {
+  // 兜底上限 4000 次：防止任何参数异常变成死循环
+  for (let i = 1; i < 4000; i++) {
+    let dt: Date;
     if (freq === 'daily') {
-      out.push(dateKeyOf(new Date(y, m, d + i)));
+      dt = new Date(y, m, d + i);
     } else if (freq === 'weekly') {
-      out.push(dateKeyOf(new Date(y, m, d + i * 7)));
+      dt = new Date(y, m, d + i * 7);
     } else {
       const lastDay = new Date(y, m + i + 1, 0).getDate();
-      out.push(dateKeyOf(new Date(y, m + i, Math.min(d, lastDay))));
+      dt = new Date(y, m + i, Math.min(d, lastDay));
     }
+    if (dt.getTime() > end.getTime()) break;
+    out.push(dateKeyOf(dt));
   }
   return out;
 }
