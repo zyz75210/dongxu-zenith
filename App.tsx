@@ -449,6 +449,16 @@ export default function App() {
     setSelectedId((cur) => (cur && kill.has(cur) ? null : cur));
   }, []);
 
+  /**
+   * 主页长按删除：和 deleteSchedule 的区别是「不动页面」——
+   * 用户正在主页看这一天，删完还要停在这天，不能跳到别处。
+   * 提醒的增删由 [schedules] 依赖的同步 effect 自动跟上，这里不用额外触发。
+   */
+  const removeSchedule = useCallback((id: string) => {
+    setSchedules((list) => list.filter((s) => s.id !== id));
+    setSelectedId((cur) => (cur === id ? null : cur));
+  }, []);
+
   // 完成 / 取消完成：只翻转这一条，其他不动
   const toggleComplete = useCallback((id: string) => {
     // 只在"未完成 → 完成"这一下给触感，取消完成不震（避免噪音）
@@ -649,6 +659,7 @@ export default function App() {
             avatar={profile.avatar}
             onGoTrain={() => showToast('训练板块即将上线')}
             onAddAt={openAddAt}
+            onDeleteSchedule={removeSchedule}
           />
         </TabPane>
 

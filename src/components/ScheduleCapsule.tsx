@@ -19,14 +19,19 @@ type Props = {
   onToggle: () => void;
   /** 可选：点「去训练」入口（仅主页当天列表传，历史页不传就不显示） */
   onGoTrain?: () => void;
+  /** 可选：长按整条（仅主页传，弹删除确认；历史页不传） */
+  onLongPress?: () => void;
 };
+
+/** 长按多久算「长按」：2 秒，刻意比系统默认 500ms 长很多，避免滑列表时误触发 */
+const LONG_PRESS_MS = 2000;
 
 /**
  * 日程胶囊 —— 主页当天列表和历史日程共用同一个组件，
  * 这样两处的圆角、内边距、字号、状态胶囊完全一致（改一处两边同步）。
  * 「去训练」入口只在传了 onGoTrain 时显示（主页），历史页不显示。
  */
-function ScheduleCapsule({ item, todayKey, onPress, onToggle, onGoTrain }: Props) {
+function ScheduleCapsule({ item, todayKey, onPress, onToggle, onGoTrain, onLongPress }: Props) {
   const state: PillState = item.completed
     ? 'done'
     : item.date < todayKey
@@ -34,7 +39,13 @@ function ScheduleCapsule({ item, todayKey, onPress, onToggle, onGoTrain }: Props
       : 'default';
 
   return (
-    <TouchableOpacity style={styles.capsule} activeOpacity={0.75} onPress={onPress}>
+    <TouchableOpacity
+      style={styles.capsule}
+      activeOpacity={0.75}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={LONG_PRESS_MS}
+    >
       <View style={[styles.dot, { backgroundColor: C.typeDot[item.type] }]} />
       <View style={styles.body}>
         <Text
