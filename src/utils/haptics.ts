@@ -45,3 +45,28 @@ export function wheelTick() {
     // 静默降级
   }
 }
+
+/**
+ * 勾选完成：一下明确的成功触感。
+ * 只在「变成已完成」时调用（取消完成不震），避免噪音。
+ * - iOS：UINotificationFeedbackGenerator 的 success
+ * - Android：Confirm（系统"确认/成功完成"触感），不支持时退回 selectionAsync
+ */
+export function completeTick() {
+  if (Platform.OS === 'android') {
+    try {
+      Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Confirm).catch(
+        androidFallback,
+      );
+    } catch {
+      androidFallback();
+    }
+    return;
+  }
+
+  try {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+  } catch {
+    // 静默降级
+  }
+}

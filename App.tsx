@@ -12,6 +12,7 @@ import {
   openAppSystemSettings, REMIND_MINUTES, syncReminders,
 } from './src/notifications';
 import { parseDateKey, dateKeyOf, completedStreak } from './src/utils/date';
+import { completeTick } from './src/utils/haptics';
 import BottomNav, { TabKey } from './src/components/BottomNav';
 import DatePickerSheet from './src/components/DatePickerSheet';
 import DurationPickerSheet from './src/components/DurationPickerSheet';
@@ -436,6 +437,9 @@ export default function App() {
 
   // 完成 / 取消完成：只翻转这一条，其他不动
   const toggleComplete = useCallback((id: string) => {
+    // 只在"未完成 → 完成"这一下给触感，取消完成不震（避免噪音）
+    const cur = latest.current.schedules.find((s) => s.id === id);
+    if (cur && !cur.completed) completeTick();
     setSchedules((list) =>
       list.map((s) => (s.id === id ? { ...s, completed: !s.completed } : s)),
     );
