@@ -1344,11 +1344,13 @@ const styles = StyleSheet.create({
     flexShrink: 0, overflow: 'hidden',
     marginTop: BLOB_TOP,
   },
-  // 训练圆点：日期数字正下方，横排，同类聚合（每种类型一个点，最多 3 个）
-  // 圆点垂直居中在「蓝圆底(40)」与「凸出灰条底(52)」之间，中心落在 46
-  dotRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 4, height: 4 },
+  // 训练圆点：日期数字正下方，横排，同类聚合（每种类型一个点，最多 4 个）
+  // 4px → 5px：马卡龙色本身浅，靠尺寸把存在感补回来，同时不会像深色那样在灰条上"砸"出黑点
+  // marginTop 3 + 高 5 = 总占位 8，和空行占位(8)一致，有没有点的行不会错位
+  // 中心落在凸台(39~52)正中 45.5，不偏下；gap 3 让三点之间透气，不连成一坨
+  dotRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 3, height: 5 },
   dotRowEmpty: { height: 8 },
-  dot: { width: 4, height: 4, borderRadius: 2 },
+  dot: { width: 5, height: 5, borderRadius: 2.5 },
   // 三个静态文字样式：日期数字统一深灰；选中后加粗；液滴到位后再变白
   // （Android 中文对数字字重响应差，用 'bold' 更稳；字号微增让加粗更明显）
   // 非选中态再按 周末橙 / 跨月淡化 区分，选中逻辑（dayWait/dayOn）保持原样
