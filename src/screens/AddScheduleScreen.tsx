@@ -46,6 +46,53 @@ const parseTime = (t: string): { h: number; m: number } => {
   };
 };
 
+/**
+ * 标题长度上限：按「视觉宽度」算，不是字符数。
+ * 中文/全角算 2、英文/数字/半角算 1，总宽 40 —— 等价于 20 个汉字、或 40 个字母，
+ * 或「10 汉字 + 20 字母」这种混合。这样中英文在同一行占的宽度是一致的，
+ * 卡片上不会出现"英文排得很长、中文排得很短"的偏差。
+ */
+const TITLE_UNITS = 40;
+/** 展示给用户的口径：折算成「几个汉字」 */
+const TITLE_MAX_HAN = TITLE_UNITS / 2;
+
+/** 宽字符（中文/日韩文/全角标点）占两个宽度单位 */
+const isWide = (ch: string) => {
+  const c = ch.codePointAt(0) ?? 0;
+  return (
+    (c >= 0x1100 && c <= 0x115f)     // 韩文字母
+    || (c >= 0x2e80 && c <= 0xa4cf)  // 中日韩部首、假名、汉字
+    || (c >= 0xac00 && c <= 0xd7a3)  // 韩文音节
+    || (c >= 0xf900 && c <= 0xfaff)  // 兼容汉字
+    || (c >= 0xfe30 && c <= 0xfe6f)  // 兼容形式
+    || (c >= 0xff00 && c <= 0xff60)  // 全角字符
+    || (c >= 0xffe0 && c <= 0xffe6)
+  );
+};
+
+/** 文本占用的宽度单位（中文 2 / 英文 1） */
+const unitsOf = (text: string) => {
+  let w = 0;
+  for (const ch of text) w += isWide(ch) ? 2 : 1;
+  return w;
+};
+
+/**
+ * 按宽度上限裁剪：超出的部分直接不接收，不做「先输进去再弹错误」。
+ * 用 for...of 走码点，避免把代理对（emoji 等）切成半个字符。
+ */
+const clampTitle = (text: string) => {
+  let w = 0;
+  let out = '';
+  for (const ch of text) {
+    const cw = isWide(ch) ? 2 : 1;
+    if (w + cw > TITLE_UNITS) break;
+    w += cw;
+    out += ch;
+  }
+  return out;
+};
+
 // 新建日程时的默认值（编辑时全部由 editItem 覆盖）
 const BLANK = {
   title: '跳绳训练',
@@ -103,6 +150,9 @@ function AddScheduleScreen({
     WEEK_DAYS[weekdayIndex(new Date(date.y, date.m, date.d))]
   }`;
 
+  // 编辑老数据时标题可能超长（那时还没限制）：计数标红提醒，但不偷偷改用户内容
+  const titleOver = unitsOf(title) > TITLE_UNITS;
+
   // 点日期：复用首页那套年月日滚轮
   const openDate = () => onOpenDate(date, (y, m, d) => setDate({ y, m, d }));
   // 点开始/结束时间：同一个时间滚轮，只是标题和初值不同
@@ -125,7 +175,7 @@ function AddScheduleScreen({
     const typeLabel = types.find((t) => t.key === type)?.label ?? '其他';
     onSave({
       date: dateKey(date.y, date.m, date.d),
-      title: title.trim() || '未命名日程',
+      title: clampTitle(title.trim()) || '未命名日程',
       start: timeText(start),
       end: timeText(end),
       type,
@@ -159,13 +209,20 @@ function AddScheduleScreen({
         </Text>
 
         {/* 标题 */}
-        <Text style={styles.label}>标题</Text>
+        <View style={styles.labelRow}>
+          <Text style={[styles.label, styles.labelInRow]}>标题</Text>
+          <Text style={[styles.titleCount, titleOver && styles.titleCountOver]}>
+            {Math.ceil(unitsOf(title) / 2)}/{TITLE_MAX_HAN}
+          </Text>
+        </View>
         <TextInput
           style={styles.titleInput}
           value={title}
-          onChangeText={setTitle}
+          onChangeText={(t) => setTitle(clampTitle(t))}
           placeholder="输入日程标题"
           placeholderTextColor={C.gray}
+          // 字符数兜底：防止粘贴上千字；真正的宽度限制在 clampTitle 里
+          maxLength={TITLE_UNITS}
         />
 
         {/* 日期与时间 */}
@@ -293,6 +350,14 @@ const styles = StyleSheet.create({
 
   label: { fontSize: 12, color: C.gray, marginBottom: 8 },
   labelGap: { marginTop: 20 },
+  // 标题这一行的 label：右边要挂字数计数，所以把自身下边距交给 labelRow
+  labelInRow: { marginBottom: 0 },
+  labelRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', marginBottom: 8,
+  },
+  titleCount: { fontSize: 11, color: C.gray },
+  titleCountOver: { color: C.danger },
 
   titleInput: {
     borderWidth: 1.5, borderColor: C.primary,
