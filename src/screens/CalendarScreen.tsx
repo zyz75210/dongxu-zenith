@@ -1261,15 +1261,37 @@ function CalendarScreen({
           <View style={styles.statsRight}>
             {statsBar.weekTotal === 0 ? (
               // 这一周没有训练安排：先看有没有排休息（排了就不是「没安排」）
-              <Text style={styles.statsEmpty}>
-                {statsBar.weekRest > 0
-                  ? `${statsBar.isThisWeek ? '本周' : '当周'}休息 ${statsBar.weekRest} 天`
-                  : statsBar.isThisWeek
-                    // 整周一条训练都没有：给一个"接下来做什么"，比一句「这周还空着」有用。
-                    // 不带 › ：它不可点（点了没反应的东西标成链接是骗人），只是一句提示。
-                    ? '下滑开始安排运动吧'
-                    : (statsBar.isPastDay ? '那周是空的' : '还空着')}
-              </Text>
+              statsBar.weekRest > 0 ? (
+                <Text style={styles.statsEmpty}>
+                  {`${statsBar.isThisWeek ? '本周' : '当周'}休息 ${statsBar.weekRest} 天`}
+                </Text>
+              ) : statsBar.isThisWeek ? (
+                /*
+                  本周一条训练都没有。
+                  左边那句已经在说「这天没排」，这里不能再陈述一遍「这周也空」——
+                  同一个意思说两遍，而且上一版写的「下滑开始安排运动吧」是句滑不动的指令
+                  （空周时内容常常不足一屏，ScrollView 根本不滚）。
+                  所以右边只给动作：点一下就以选中的那天为日期新建，和「本周 3/7 ›」同一副长相。
+                */
+                <TouchableOpacity
+                  style={styles.statsWeekRow}
+                  activeOpacity={0.6}
+                  onPress={onOpenAdd}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                >
+                  <Text style={styles.statsEmpty}>排一条</Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={12}
+                    color={C.gray}
+                    style={styles.statsWeekCaret}
+                  />
+                </TouchableOpacity>
+              ) : (
+                <Text style={styles.statsEmpty}>
+                  {statsBar.isPastDay ? '那周是空的' : '还空着'}
+                </Text>
+              )
             ) : (
               /*
                 只留一行「本周 3/7 次 ›」，去掉那条 4px 进度条 ——

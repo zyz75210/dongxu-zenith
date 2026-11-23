@@ -108,5 +108,8 @@ const styles = StyleSheet.create({
   pillPressed: { opacity: 0.7 },
   icon: { marginRight: 4 },
   text: { fontSize: 11 },
-  textActive: { fontSize: 11.5, fontWeight: '500' },
+  // 状态升级只靠底色、图标和字重区分，字号固定 11：
+  // 11 → 11.5 差 4.5%，肉眼读不出，却可能在密度换算下被取整成 11 或 12，
+  // 表现为勾选那一瞬文字轻跳一下。胶囊"长大一点"的感觉交给 padding（pillActive）。
+  textActive: { fontWeight: '500' },
 });
