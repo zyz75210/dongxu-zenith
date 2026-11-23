@@ -16,15 +16,15 @@ export const C = {
   halfDown: '#C65B20',    // 完成一半以下 橙
   none: '#C43D3D',        // 完全未完成 红
 
-  // 日程类型小圆点颜色（六大类）
+  // 训练计划三大类颜色（跳绳 / 体能 / 跑步）
   typeDot: {
-    work: '#7EAEFF',      // 工作 浅蓝
-    sport: '#5FC79B',     // 运动 浅绿
-    study: '#8B7CF6',     // 学习 紫（保持不变）
-    activity: '#FFB067',  // 活动 淡橙
-    important: '#F04438', // 重要 大红
-    other: '#C4C9D4',     // 其他 浅灰
+    rope: '#5CB85C',      // 跳绳 绿
+    fitness: '#A78BFA',   // 体能 紫
+    run: '#4A7CFF',       // 跑步 蓝
   },
+
+  // 危险红：超时未完成 / 删除等警示色（独立于类型色，避免和训练色混淆）
+  danger: '#F04438',
 } as const;
 
 // 星期的中文显示（设计稿是周一开头）

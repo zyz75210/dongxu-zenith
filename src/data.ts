@@ -1,8 +1,8 @@
 // 应用内的数据模型与初始值
 
-// 日程六大分类：工作 / 运动 / 学习 / 活动 / 重要 / 其他
+// 训练计划三大分类：跳绳（核心）/ 体能（辅助）/ 跑步
 export type ScheduleType =
-  | 'work' | 'sport' | 'study' | 'activity' | 'important' | 'other';
+  | 'rope' | 'fitness' | 'run';
 
 export type Schedule = {
   id: string;

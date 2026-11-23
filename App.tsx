@@ -70,7 +70,7 @@ const FEATURE_TABS: TabKey[] = ['train', 'planet', 'content', 'growth'];
  */
 const WARM_ITEM: Schedule = {
   id: '__warm__', date: '2026-01-01', title: '',
-  start: '09:00', end: '10:00', type: 'work', remind: false,
+  start: '09:00', end: '10:00', type: 'rope', remind: false,
 };
 
 export default function App() {

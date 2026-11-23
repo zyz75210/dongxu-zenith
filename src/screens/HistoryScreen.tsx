@@ -517,7 +517,7 @@ const styles = StyleSheet.create({
   allText: { fontSize: 13, color: C.text },
   delBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: C.typeDot.important,
+    backgroundColor: C.danger,
     borderRadius: 12, paddingVertical: 12,
   },
   delBtnOff: { backgroundColor: '#F3C6C2' },

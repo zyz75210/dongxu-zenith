@@ -20,7 +20,7 @@ const CIRCLE_PATH = 'M6 6 m -4 0 a 4 4 0 1 0 8 0 a 4 4 0 1 0 -8 0';
 const LOOKS: Record<PillState, { bg: string; fg: string; icon: 'check' | 'cross' | 'circle' }> = {
   default: { bg: C.soft, fg: C.gray, icon: 'circle' },
   done: { bg: '#E9F0FE', fg: C.primary, icon: 'check' },
-  overdue: { bg: '#FCEBEA', fg: C.typeDot.important, icon: 'cross' },
+  overdue: { bg: '#FCEBEA', fg: C.danger, icon: 'cross' },
 };
 
 type Props = {

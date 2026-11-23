@@ -56,7 +56,7 @@ function AlertIcon({ size, color }: { size: number; color: string }) {
 const LOOKS: Record<CompletionState, { fill: string; border: string; fg: string }> = {
   pending: { fill: C.white, border: C.primary, fg: C.primary },
   done: { fill: C.primary, border: C.primary, fg: C.white },
-  overdue: { fill: C.typeDot.important, border: C.typeDot.important, fg: C.white },
+  overdue: { fill: C.danger, border: C.danger, fg: C.white },
 };
 
 type Props = {

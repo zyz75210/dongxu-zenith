@@ -17,8 +17,7 @@ type Props = {
 };
 
 const typeName: Record<string, string> = {
-  work: '工作', sport: '运动', study: '学习',
-  activity: '活动', important: '重要', other: '其他',
+  rope: '跳绳', fitness: '体能', run: '跑步',
 };
 
 function DetailScreen({
@@ -90,8 +89,7 @@ function DetailScreen({
             <Text
               style={[
                 styles.heroTagText,
-                // "其他"是浅灰圆点，文字用次灰色保证可读性
-                { color: item.type === 'other' ? C.gray : C.typeDot[item.type] },
+                { color: C.typeDot[item.type] },
               ]}
             >
               {typeName[item.type]}
@@ -211,7 +209,7 @@ const styles = StyleSheet.create({
   doneTexts: { flex: 1, paddingRight: 10 },
   doneTitle: { fontSize: 13, color: C.text, fontWeight: '500', marginBottom: 5 },
   doneSub: { fontSize: 11, color: C.gray },
-  doneSubLate: { color: C.typeDot.important },
+  doneSubLate: { color: C.danger },
 
   footer: {
     flexDirection: 'row', gap: 10,

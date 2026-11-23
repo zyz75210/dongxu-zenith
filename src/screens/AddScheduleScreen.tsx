@@ -29,12 +29,9 @@ type Props = {
 };
 
 const types: { key: ScheduleType; label: string }[] = [
-  { key: 'work', label: '工作' },
-  { key: 'sport', label: '运动' },
-  { key: 'study', label: '学习' },
-  { key: 'activity', label: '活动' },
-  { key: 'important', label: '重要' },
-  { key: 'other', label: '其他' },
+  { key: 'rope', label: '跳绳' },
+  { key: 'fitness', label: '体能' },
+  { key: 'run', label: '跑步' },
 ];
 
 const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
@@ -51,8 +48,8 @@ const parseTime = (t: string): { h: number; m: number } => {
 
 // 新建日程时的默认值（编辑时全部由 editItem 覆盖）
 const BLANK = {
-  title: '设计评审会议',
-  type: 'work' as ScheduleType,
+  title: '跳绳训练',
+  type: 'rope' as ScheduleType,
   note: '',
   remind: true,
   start: { h: 14, m: 0 },
@@ -221,22 +218,18 @@ function AddScheduleScreen({
           })}
         </View>
 
-        {/* 训练内容：仅"运动"类型出现，当前只是预留占位 */}
-        {type === 'sport' && (
-          <>
-            <Text style={[styles.label, styles.labelGap]}>训练内容</Text>
-            <View style={styles.trainingRow}>
-              <TouchableOpacity
-                style={styles.trainingPill}
-                onPress={openTrainingPlaceholder}
-                activeOpacity={0.6}
-              >
-                <Ionicons name="add" size={15} color={C.gray} />
-                <Text style={styles.trainingText}>添加训练</Text>
-              </TouchableOpacity>
-            </View>
-          </>
-        )}
+        {/* 训练内容：三类都是训练，始终显示；当前只是预留占位 */}
+        <Text style={[styles.label, styles.labelGap]}>训练内容</Text>
+        <View style={styles.trainingRow}>
+          <TouchableOpacity
+            style={styles.trainingPill}
+            onPress={openTrainingPlaceholder}
+            activeOpacity={0.6}
+          >
+            <Ionicons name="add" size={15} color={C.gray} />
+            <Text style={styles.trainingText}>添加训练</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* 备注 */}
         <View style={styles.noteHeader}>
