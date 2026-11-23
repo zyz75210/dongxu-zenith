@@ -11,7 +11,7 @@ import {
   checkNotifyHealth, consumeFreshGrant, deviceBrand, isWithinLeadWindow, needsBatteryHint,
   openAppSystemSettings, REMIND_MINUTES, syncReminders,
 } from './src/notifications';
-import { parseDateKey, dateKeyOf, completedStreak } from './src/utils/date';
+import { parseDateKey, dateKeyOf, completedStreak, timeToMinutes } from './src/utils/date';
 import { completeTick } from './src/utils/haptics';
 import BottomNav, { TabKey } from './src/components/BottomNav';
 import DatePickerSheet from './src/components/DatePickerSheet';
@@ -386,10 +386,24 @@ export default function App() {
 
   const addSchedule = useCallback((draft: Omit<Schedule, 'id'>) => {
     Keyboard.dismiss();
+    /**
+     * 保存前先看一眼有没有时间重叠（同一天、排除自己）。
+     * 只提示、不拦截：训练加练、时间微调都是正常需求，强行禁止会更烦。
+     */
+    const sMin = timeToMinutes(draft.start);
+    const eMin = timeToMinutes(draft.end);
+    const overlapped = latest.current.schedules.some((o) => {
+      if (o.date !== draft.date) return false;
+      if (editingId && o.id === editingId) return false;
+      return sMin < timeToMinutes(o.end) && timeToMinutes(o.start) < eMin;
+    });
     // 保存时就告诉用户：这条已经进了 15 分钟窗口，提醒会改成「开始时」发一条，
     // 否则用户会以为「开了提醒却没响」。编辑已完成的那条不提示（本来就不会提醒）。
     const completed = editingId ? Boolean(editItem?.completed) : false;
-    if (isWithinLeadWindow({ ...draft, completed })) {
+    // 两条提示只留一条：时间重叠比提醒窗口更要紧，优先说它
+    if (overlapped) {
+      showToast('这段时间和已有日程重叠了，记得确认下安排');
+    } else if (isWithinLeadWindow({ ...draft, completed })) {
       showToast(`距开始不足 ${REMIND_MINUTES} 分钟，提醒改为开始时发送`);
     }
     /**

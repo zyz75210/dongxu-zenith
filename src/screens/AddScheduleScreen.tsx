@@ -115,6 +115,13 @@ function AddScheduleScreen({
   };
 
   const save = () => {
+    // 结束时间必须晚于开始时间：跨零点不在这里支持，先把明显填反的情况拦住
+    if (end.h * 60 + end.m <= start.h * 60 + start.m) {
+      Alert.alert('时间设置不对', '结束时间要晚于开始时间，改一下再保存吧。', [
+        { text: '知道了' },
+      ]);
+      return;
+    }
     const typeLabel = types.find((t) => t.key === type)?.label ?? '其他';
     onSave({
       date: dateKey(date.y, date.m, date.d),
