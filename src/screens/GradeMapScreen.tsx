@@ -8,7 +8,7 @@ import Svg, {
 } from 'react-native-svg';
 import { C } from '../theme';
 import {
-  GRADE_TAGS, STAGES, ZONE_LABEL, ZONE_RANGE, actionKey,
+  GRADE_TAGS, STAGES, ZONE_LABEL, actionKey,
 } from '../content/grades';
 import {
   type StageState, gradeTotals, isLit, stagePoint, stageStats, stageStates, unlockNeed,
@@ -216,7 +216,7 @@ function GradeMapScreen({ done, onToggle, onBack }: Props) {
                     { color: zoneColor(s.zone) },
                     s.zone === 3 && styles.zoneTextHigh,
                   ]}>
-                    {ZONE_LABEL[s.zone]}（{ZONE_RANGE[s.zone]}）
+                    {ZONE_LABEL[s.zone]}
                   </Text>
                 </View>
               )}

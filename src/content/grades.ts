@@ -28,16 +28,16 @@ export type GradeStage = {
   actions: GradeAction[];
 };
 
+/**
+ * 地图上的分区标题。
+ * 只写分区名：后面既不带「· 稳 / · 花 / · 难」这类形容词，
+ * 也不带「（一~三段）」这类段位区间 —— 标题就是个分隔符，下面紧跟着的
+ * 就是那几个段位卡片，再复述一遍区间只是噪音。区间见文件头的注释。
+ */
 export const ZONE_LABEL: Record<1 | 2 | 3, string> = {
-  1: '基础区 · 稳',
-  2: '进阶区 · 花',
-  3: '高阶区 · 难',
-};
-
-export const ZONE_RANGE: Record<1 | 2 | 3, string> = {
-  1: '一~三段',
-  2: '四~六段',
-  3: '七~九段',
+  1: '基础区',
+  2: '进阶区',
+  3: '高阶区',
 };
 
 export const GRADE_TAGS = [
