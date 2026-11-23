@@ -455,11 +455,28 @@ export default function App() {
      */
     const sMin = timeToMinutes(draft.start);
     const eMin = timeToMinutes(draft.end);
-    const overlapped = latest.current.schedules.some((o) => {
-      if (o.date !== draft.date) return false;
-      if (editingId && o.id === editingId) return false;
-      return sMin < timeToMinutes(o.end) && timeToMinutes(o.start) < eMin;
-    });
+    /**
+     * 冲突要按「实际会落地的每一天」去查，不能只看 draft.date。
+     * 重复会把一条草稿展开成一年的实例（最多 365 条），只查首日的话，
+     * 后面那些撞上已有安排的日子会被静默放过 —— 排完才发现每天都撞。
+     */
+    const landingDates = draft.repeat
+      ? [draft.date, ...repeatDates(draft.date, draft.repeat)]
+      : [draft.date];
+    /**
+     * 已有日程先按日期建索引：重复要连着查 365 天，
+     * 逐日再对全表扫一遍等于白算 365 遍（日历里条数越多越明显）。
+     */
+    const busyByDate = new Map<string, { s: number; e: number }[]>();
+    for (const o of latest.current.schedules) {
+      if (editingId && o.id === editingId) continue;
+      const span = { s: timeToMinutes(o.start), e: timeToMinutes(o.end) };
+      const arr = busyByDate.get(o.date);
+      if (arr) arr.push(span);
+      else busyByDate.set(o.date, [span]);
+    }
+    const clashDates = landingDates.filter((d) =>
+      (busyByDate.get(d) ?? []).some((r) => sMin < r.e && r.s < eMin));
     // 保存时就告诉用户：这条已经进了 15 分钟窗口，提醒会改成「开始时」发一条，
     // 否则用户会以为「开了提醒却没响」。编辑已完成的那条不提示（本来就不会提醒）。
     const completed = editingId ? Boolean(editItem?.completed) : false;
@@ -472,18 +489,25 @@ export default function App() {
     );
     const hasRest = sameDay.some((o) => o.type === 'rest');
     const hasTrain = sameDay.some((o) => o.type !== 'rest');
-    const restClash = draft.type === 'rest' ? hasTrain : hasRest;
-    // 三条提示只留一条：休息冲突最要紧（它关系到别练过头），其次时间重叠，最后提醒窗口
+    const restClash = !draft.repeat && (draft.type === 'rest' ? hasTrain : hasRest);
+    /**
+     * 三条提示只留一条：休息冲突最要紧（它关系到别练过头），其次时间重叠，最后提醒窗口。
+     *
+     * 这里只攒成一句话、不直接弹 —— 重复保存最后还有一句「已排好 N 次」，
+     * 如果两处都调 showToast，后一句会把前一句整个盖掉，
+     * 那正是「重复日程撞了时间却不提醒」的根因。
+     */
+    let notice: string | null = null;
     if (restClash) {
-      showToast(
-        draft.type === 'rest'
-          ? '这天已经有训练啦，休息日建议先把训练挪到别的日期'
-          : '这天你安排了休息，想练的话注意别过量哦',
-      );
-    } else if (overlapped) {
-      showToast('这段时间和已有日程重叠了，记得确认下安排');
+      notice = draft.type === 'rest'
+        ? '这天已经有训练啦，休息日建议先把训练挪到别的日期'
+        : '这天你安排了休息，想练的话注意别过量哦';
+    } else if (clashDates.length > 0) {
+      notice = draft.repeat
+        ? `其中 ${clashDates.length} 天和已有日程时间重叠`
+        : '这段时间和已有日程重叠了，记得确认下安排';
     } else if (isWithinLeadWindow({ ...draft, completed })) {
-      showToast(`距开始不足 ${REMIND_MINUTES} 分钟，提醒改为开始时发送`);
+      notice = `距开始不足 ${REMIND_MINUTES} 分钟，提醒改为开始时发送`;
     }
     /**
      * 用户刚表达了「要提醒」，这一刻弹授权最容易被接受。
@@ -502,6 +526,7 @@ export default function App() {
       setJumpDate(parseDateKey(draft.date));
       setEditingId(null);
       setPage('detail');        // 改完回详情页，能立刻看到新内容
+      if (notice) showToast(notice);
       return;
     }
     /**
@@ -528,7 +553,19 @@ export default function App() {
     // 保存后跳到该日程所在日期，能立刻看到它
     setJumpDate(parseDateKey(base.date));
     setPage('main');
-    if (freq) showToast(`${REPEAT_WORD[freq]}一次，已排好 ${items.length} 次`);
+    /**
+     * 只弹一次：有冲突时把条数和警告合成一句，
+     * 而不是先报冲突、再被「已排好 N 次」冲掉。
+     */
+    if (freq) {
+      showToast(
+        notice
+          ? `已排好 ${items.length} 次 · ${notice}`
+          : `${REPEAT_WORD[freq]}一次，已排好 ${items.length} 次`,
+      );
+    } else if (notice) {
+      showToast(notice);
+    }
   }, [editingId, editItem, bumpReminders, showToast]);
 
   /**
