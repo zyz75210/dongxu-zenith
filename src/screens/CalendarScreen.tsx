@@ -1005,7 +1005,7 @@ function CalendarScreen({
           搜索只做一件事：输入年月日，跳到那一天。不是内容搜索，没有结果列表。
         */}
         {searching ? (
-          <View style={styles.searchBlock}>
+          <View>
             <View style={styles.searchRow}>
               <View style={[styles.searchField, searchErr ? styles.searchFieldErr : null]}>
                 <Ionicons name="search" size={15} color={C.gray} />
@@ -1051,8 +1051,10 @@ function CalendarScreen({
                 <Text style={styles.searchCancel}>取消</Text>
               </TouchableOpacity>
             </View>
-            {/* 报错只在认不出来时出现，平时不占高度 */}
-            {searchErr ? <Text style={styles.searchErr}>{searchErr}</Text> : null}
+            {/* 报错位常驻：有没有错误都占这 18px，否则一报错整页日历会往下弹一下 */}
+            <View style={styles.searchErrSlot}>
+              {searchErr ? <Text style={styles.searchErr}>{searchErr}</Text> : null}
+            </View>
           </View>
         ) : (
         <View style={styles.header}>
@@ -1395,9 +1397,10 @@ const styles = StyleSheet.create({
     backgroundColor: C.soft, alignItems: 'center', justifyContent: 'center',
   },
 
-  // 搜索态：整条替换头部，高度和 header 一致（36），进出搜索页面不会上下跳
-  searchBlock: { marginBottom: 18 },
-  searchRow: { flexDirection: 'row', alignItems: 'center' },
+  // 搜索态：整块高度必须等于 header（头像 40 + 下方 18 间距 = 58），
+  // 否则进出搜索时下面的日历会上下跳 4px。
+  // 输入字段本身保持 36（和两个圆钮一样高），多的 2px 用行高居中吃掉。
+  searchRow: { flexDirection: 'row', alignItems: 'center', height: 40 },
   searchField: {
     flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6,
     height: 36, borderRadius: 18, paddingHorizontal: 12,
@@ -1410,7 +1413,9 @@ const styles = StyleSheet.create({
   searchGo: { fontSize: 13, fontWeight: '600', color: C.primary, marginLeft: 12 },
   searchGoOff: { color: '#C4C9D2' },
   searchCancel: { fontSize: 13, color: C.sub, marginLeft: 12 },
-  searchErr: { fontSize: 11, color: C.danger, marginTop: 6, marginLeft: 2 },
+  // 这 18px 同时充当 header 下方的间距，所以有错没错高度都不变
+  searchErrSlot: { height: 18, justifyContent: 'flex-end', paddingBottom: 1 },
+  searchErr: { fontSize: 11, color: C.danger, marginLeft: 2 },
 
   monthSwitch: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
   pill: {
