@@ -34,7 +34,11 @@ type Props = {
   onSelectDate?: (d: { y: number; m: number; d: number }) => void;
   /** 点右上角齿轮：打开设置页 */
   onOpenSettings: () => void;
-  /** 点当天列表右上角「全部」：进历史日程 */
+  /**
+   * 原「全部」入口（顶部标题行右上角）。
+   * 已从首页移除：设置页和「我的」页都能进历史日程，这个链接只是快一步，
+   * 却一直占着标题行最贵的位置。prop 保留，方便以后想加回来时不用改 App。
+   */
   onOpenHistory: () => void;
   /** 头像 uri：改过资料后首页一起更新 */
   avatar?: string;
@@ -54,6 +58,12 @@ const DAY_TEXT_COLOR = '#2F3239';
 const WEEKEND_COLOR = '#FF9A45';
 // 跨月补位日期（上月末尾）的淡化灰
 const DIM_COLOR = '#C4C9D2';
+/**
+ * 「块」这一层的统一底色：日历灰条、日期凸台、数据条全用它。
+ * 之前灰条是 #F2F3F6、数据条是 #F7F8FA，一屏两个近似白，看不出层级差别、只觉得脏。
+ * 统一到深的那一档——灰条本来就靠这点深度才托得住上面那几个圆点。
+ */
+const BAND = '#F2F3F6';
 /**
  * 是不是训练类。休息不算训练，统计口径要分开算：
  * 用户安排了休息日不代表「这周练了」，否则「本周训练 X/Y」会被休息撑虚。
@@ -363,7 +373,7 @@ const MonthGrid = memo(function MonthGrid({
 
 function CalendarScreen({
   onOpenProfile, onOpenAdd, onOpenDetail, onOpenPicker, onSelectDate,
-  onOpenSettings, onOpenHistory, schedules, initialDate, onToggleComplete, avatar,
+  onOpenSettings, schedules, initialDate, onToggleComplete, avatar,
   onGoTrain, onAddAt, onOpenReport, onAddQuick,
 }: Props) {
   const today = useMemo(() => new Date(), []);
@@ -715,7 +725,8 @@ function CalendarScreen({
     num?: string;
     unit?: string;
     text?: string;
-    sub: string;
+    /** 副文案：空态时不给（这一天什么都没排，就别再补一句评价了，劝的话交给下方空态卡） */
+    sub?: string;
     /** 有值就表示「这一档用自绘火焰」，值即轮廓形态；其余状态仍用 Ionicons */
     flame?: 'solid' | 'linear';
   } => {
@@ -730,14 +741,14 @@ function CalendarScreen({
     if (statsBar.isFutureDay) {
       return total > 0
         ? { icon: 'calendar-outline', color: C.primary, text: `已安排 ${total} 条`, sub: '到时候见' }
-        : { icon: 'calendar-outline', color: C.gray, text: '还没安排', sub: '要不要先占个位' };
+        : { icon: 'calendar-outline', color: C.gray, text: '还没安排' };
     }
 
     // 历史：说那天的结果
     if (statsBar.isPastDay) {
       // 那天压根没排——别说「忙忘啦」，那是在冤枉人
       if (total === 0) {
-        return { icon: 'remove-outline', color: C.gray, text: '没安排', sub: '空着也是一种安排' };
+        return { icon: 'remove-outline', color: C.gray, text: '没安排' };
       }
       // 那天只排了休息：这是计划内的恢复日，不能按「训练完成率」去算
       if (trainTotal === 0) {
@@ -774,52 +785,35 @@ function CalendarScreen({
       return {
         icon: 'flame-outline', color: C.fire, flame: 'linear',
         prefix: '已坚持', num: String(statsBar.streak), unit: '天',
-        sub: '今天补上，别断了',
+        sub: total === 0 ? undefined : '今天补上，别断了',
       };
     }
-    // ③ 完全没记录 → 线性灰
-    // 这一档要拆开看，同一句话对两种人是不同的意思：
-    // - 今天已经排了训练只是没勾：他知道自己要练什么，「还没动」就够了
-    // - 今天一条都没排：他连练什么都不知道，「还没动」只会让他卡住，
-    //   所以改成问句，指向下方那三个训练色块（选项就在眼前，不用想）
-    if (trainTotal > 0) {
+    // ③ 没有连续记录 → 线性灰
+    // 今天排了训练只是没勾：他知道自己要练什么，「还没动」就够了
+    if (total > 0) {
       return {
         icon: 'flame-outline', color: C.gray, flame: 'linear',
         text: '今天还没动',
         sub: '练完来打个勾',
       };
     }
-    if (statsBar.weekTotal > 0) {
-      return {
-        icon: 'flame-outline', color: C.gray, flame: 'linear',
-        text: '今天空着',
-        sub: '想动就加一条',
-      };
-    }
-    // 断了很久又回来的人：这句「好久不见」才是它该出现的地方
-    // （对第一次打开的人说「太久没见」是假的，第一次哪来的「久」）
-    if (statsBar.daysSinceActive >= 5) {
-      return {
-        icon: 'flame-outline', color: C.gray, flame: 'linear',
-        text: '好久不见',
-        sub: '先走两步？',
-      };
-    }
-    // 从来没动过：第一次来，别给压力，也别问「练哪个」——他还不知道能练什么，选项在下面
-    if (statsBar.daysSinceActive < 0) {
-      return {
-        icon: 'flame-outline', color: C.gray, flame: 'linear',
-        text: '第一次来？',
-        sub: '动一下就好',
-      };
-    }
-    // 有记录、本周也空着，只是今天还没动：他知道流程，直接问选哪个
+    // 今天一条都没排：这就是空态。数据条只说事实，不劝 ——
+    // 一屏只劝一次，劝的活归下方那张空态卡（它有三个训练色块和按钮）
     return {
       icon: 'flame-outline', color: C.gray, flame: 'linear',
-      text: '今天练哪个',
-      sub: '挑一项就行',
+      text: '今天还没排',
     };
   }, [daySchedules, statsBar]);
+
+  /**
+   * 本月有没有勾过任意一条训练。
+   * 休息日不算「勾过」——它到了那天自动算完成，用户没做过任何操作。
+   * 这决定了标题旁边那句操作提示还该不该出现：他自己勾过一次，就说明学会了。
+   */
+  const monthTouched = useMemo(() => {
+    const prefix = `${view.y}-${String(view.m + 1).padStart(2, '0')}`;
+    return schedules.some((s) => s.type !== 'rest' && s.completed && s.date.startsWith(prefix));
+  }, [schedules, view.y, view.m]);
 
   const prevDate = new Date(view.y, view.m - 1, 1);
   const nextDate = new Date(view.y, view.m + 1, 1);
@@ -1142,7 +1136,10 @@ function CalendarScreen({
                 )}
               </View>
             </View>
-            <Text style={styles.statsStreakSub}>{leftView.sub}</Text>
+            {/* 空态没有副文案：数据条在这一屏只负责报事实，整条会更矮、更轻 */}
+            {leftView.sub ? (
+              <Text style={styles.statsStreakSub}>{leftView.sub}</Text>
+            ) : null}
           </View>
 
           <View style={styles.statsRight}>
@@ -1185,22 +1182,26 @@ function CalendarScreen({
           </View>
         </View>
 
-        {/* 当天日程标题：左边一块（标题+数量+操作提示），右边「全部」固定，避免长文案把它挤扁 */}
+        {/*
+          标题行：左边日期，右边一句操作提示（同一行，读起来是一句话）。
+          原来右侧挂的「全部」已经去掉：设置页和「我的」页都有历史日程入口，
+          首页这个链接只是更快一步，却一直占着最贵的一行右侧。
+        */}
         <View style={styles.listHeader}>
-          <View style={styles.listLeft}>
+          <View style={styles.listTitleRow}>
             <Text style={styles.listTitle}>
               {sel.m + 1}月{sel.d}日 星期{WEEK_DAYS[weekdayIndex(selDate)]}
             </Text>
-            <Text style={styles.listSub}>
-              {dayCount > 0 ? `${dayCount} 个日程` : '暂无日程'}
-            </Text>
-            {dayCount > 0 && (
-              <Text style={styles.listHint}>点开看详情 · 点标签标完成</Text>
+            {/* 提示只在「本月还没勾过任何一条」时出现：学会一次就永久退场 */}
+            {dayCount > 0 && !monthTouched && (
+              <Text style={styles.listHint} numberOfLines={1}>
+                点开看详情 · 点标签标完成
+              </Text>
             )}
           </View>
-          <TouchableOpacity activeOpacity={0.7} onPress={onOpenHistory}>
-            <Text style={styles.allLink}>全部</Text>
-          </TouchableOpacity>
+          <Text style={styles.listSub}>
+            {dayCount > 0 ? `${dayCount} 个日程` : '暂无日程'}
+          </Text>
         </View>
 
         {/* 当天日程：按开始时间排序，没有就显示空状态 */}
@@ -1256,10 +1257,15 @@ function CalendarScreen({
         )}
       </ScrollView>
 
-      {/* 右下角悬浮加号 */}
-      <TouchableOpacity style={styles.fab} onPress={onOpenAdd} activeOpacity={0.85}>
-        <Ionicons name="add" size={28} color={C.white} />
-      </TouchableOpacity>
+      {/*
+        右下角加号只在「这天已经有日程」时出现。
+        空态卡片里本来就有自己的主按钮，再放一个蓝色圆钮，两个蓝色抢同一件事，只会让人犹豫。
+      */}
+      {dayCount > 0 && (
+        <TouchableOpacity style={styles.fab} onPress={onOpenAdd} activeOpacity={0.85}>
+          <Ionicons name="add" size={28} color={C.white} />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -1288,7 +1294,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 7,
     borderRadius: 16, backgroundColor: C.soft,
   },
-  pillText: { fontSize: 12, color: C.gray },
+  pillText: { fontSize: 12, color: C.sub },
   pillToday: { backgroundColor: '#EAF1FE' },
   pillTodayText: { fontSize: 12, color: C.primary, fontWeight: '500' },
   // 选中别的日期时：变成实心主色的动作按钮，「回到今天」四个字也放得下
@@ -1296,7 +1302,7 @@ const styles = StyleSheet.create({
   pillBackText: { fontSize: 12, color: C.white, fontWeight: '600' },
 
   weekRow: { flexDirection: 'row', marginBottom: 6 },
-  weekText: { flex: 1, textAlign: 'center', fontSize: 12, color: C.gray },
+  weekText: { flex: 1, textAlign: 'center', fontSize: 12, color: C.sub },
   weekTextWeekend: { color: WEEKEND_COLOR, fontWeight: 'bold' },
 
   gridWrap: { height: ROW_H * MAX_ROWS, overflow: 'hidden', marginBottom: 8 },
@@ -1306,26 +1312,26 @@ const styles = StyleSheet.create({
   gridRow: { flexDirection: 'row', height: ROW_H },
   dayBand: {
     position: 'absolute', height: 34,
-    backgroundColor: '#F2F3F6', borderRadius: 10,
+    backgroundColor: BAND, borderRadius: 10,
   },
   // 有训练的日期，在底灰条下方延伸的凸台（放圆点用）：
   // 默认（中间段）顶部直角无缝贴主灰条、底部圆角收尾
   // height 比 DOT_ZONE 多 1，补偿 top 上移的 1px，保证底部位置不变
   dayBandTall: {
     position: 'absolute', height: DOT_ZONE + 1,
-    backgroundColor: '#F2F3F6',
+    backgroundColor: BAND,
     borderBottomLeftRadius: 10, borderBottomRightRadius: 10,
   },
   // 端部填充块：直角块，填平主灰条左右端圆角凹坑，让侧边变成竖直平边（类似 I）
   edgeFillL: {
     position: 'absolute', left: 0, top: -9,
     width: 10, height: 10,
-    backgroundColor: '#F2F3F6',
+    backgroundColor: BAND,
   },
   edgeFillR: {
     position: 'absolute', right: 0, top: -9,
     width: 10, height: 10,
-    backgroundColor: '#F2F3F6',
+    backgroundColor: BAND,
   },
   // 选中态的液体滑块：尺寸/圆角显式写死，避免安卓上圆角丢失变成方块
   // 位置完全由 translateX / translateY 决定（left/top 固定 0），方便用 native driver
@@ -1372,7 +1378,7 @@ const styles = StyleSheet.create({
   emptyTypeText: { fontSize: 12, color: C.text },
   emptyLead: { fontSize: 13, fontWeight: '500', color: C.text },
   emptyCopy: { alignItems: 'center', gap: 5 },
-  emptySub: { fontSize: 12, color: C.gray },
+  emptySub: { fontSize: 12, color: C.sub },
   emptyCta: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: C.primary, borderRadius: 999,
@@ -1383,7 +1389,7 @@ const styles = StyleSheet.create({
   // 数据条：连续打卡 + 本周训练进度
   statsBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: '#F7F8FA', borderRadius: 14,
+    backgroundColor: BAND, borderRadius: 14,
     paddingHorizontal: 16, paddingVertical: 12, marginBottom: 18,
   },
   statsLeft: {},
@@ -1391,36 +1397,31 @@ const styles = StyleSheet.create({
   // 数字和「天」用 baseline 对齐，图标用外层 center 对齐数字块，不会一高一低
   statsStreakPair: { flexDirection: 'row', alignItems: 'baseline', marginLeft: 5 },
   // 「已坚持」作为前缀小字，和「天」同一层级；数字才是视觉重点
-  statsStreakPrefix: { fontSize: 12, color: C.gray },
+  statsStreakPrefix: { fontSize: 12, color: C.sub },
   statsStreakNum: { fontSize: 22, fontWeight: 'bold', color: C.text, marginLeft: 3 },
-  statsStreakLabel: { fontSize: 12, color: C.gray, marginLeft: 2 },
+  statsStreakLabel: { fontSize: 12, color: C.sub, marginLeft: 2 },
   // 0 天时显示的邀请文案，替代「已坚持 0 天」
   statsStreakStart: { fontSize: 15, fontWeight: '600', color: C.text },
-  statsStreakSub: { fontSize: 11, color: C.gray, marginTop: 3 },
+  statsStreakSub: { fontSize: 11, color: C.sub, marginTop: 3 },
   statsRight: { alignItems: 'flex-end' },
   // 本周没排训练时的引导文案
   statsEmpty: { fontSize: 13, color: C.primary, fontWeight: '500' },
   statsWeekRow: { flexDirection: 'row', alignItems: 'baseline' },
-  statsWeekText: { fontSize: 12, color: C.gray },
+  statsWeekText: { fontSize: 12, color: C.sub },
   // 和右侧「这周还空着」同一个主色蓝：同一块区域两种状态用同一套色，视觉连贯
   statsWeekNum: { fontSize: 18, fontWeight: 'bold', color: C.primary, marginLeft: 6 },
-  statsWeekTotal: { fontSize: 13, fontWeight: '600', color: C.gray },
+  statsWeekTotal: { fontSize: 13, fontWeight: '600', color: C.sub },
   // 箭头告诉用户「这行字能点」，也是唯一说明它是入口的地方
   statsWeekCaret: { marginLeft: 1, alignSelf: 'center' },
 
-  listHeader: {
-    flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  // flex: 1 让左侧吃满剩余宽度，右侧「全部」不会被长文案挤到边缘
-  listLeft: { flex: 1, paddingRight: 12 },
-  listTitle: { fontSize: 15, fontWeight: '600', color: C.text },
+  // 标题和提示同一行：提示跟在「星期二」右边，读到它时正好在日期上
+  listHeader: { marginBottom: 12 },
+  listTitleRow: { flexDirection: 'row', alignItems: 'baseline' },
+  listTitle: { fontSize: 15, fontWeight: '600', color: C.text, flexShrink: 0 },
   // 「今天」徽章已移除：上方按钮已经能表达「你在今天」，两处重复只增加视觉噪音
-  listSub: { fontSize: 11, color: C.gray, marginTop: 3 },
-  // 操作提示单独一行、字号再小半号：它是辅助信息，不该和数量抢同一行的空间
-  // 用 11 而不用 10.5：半像素字号在中文字形上会发虚，是最容易被看出「不干净」的地方
-  listHint: { fontSize: 11, color: '#A8AEB9', marginTop: 2 },
-  allLink: { fontSize: 12, color: C.primary, marginTop: 1 },
+  listSub: { fontSize: 11, color: C.sub, marginTop: 3 },
+  // 操作提示跟在标题右侧：窄屏时允许压缩截断，也不许把标题挤歪
+  listHint: { fontSize: 11, color: C.sub, marginLeft: 8, flexShrink: 1 },
 
   fab: {
     position: 'absolute', right: 20, bottom: 22,

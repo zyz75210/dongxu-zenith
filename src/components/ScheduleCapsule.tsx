@@ -86,7 +86,7 @@ const styles = StyleSheet.create({
   // 已完成：标题删除线 + 转灰（完成态三重信号之一）
   titleDone: { textDecorationLine: 'line-through', color: C.gray },
   metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 3 },
-  time: { fontSize: 11, color: C.gray },
+  time: { fontSize: 11, color: C.sub },
   goTrain: { marginLeft: 10 },
   goTrainText: { fontSize: 12, color: C.primary, fontWeight: '500' },
 });
