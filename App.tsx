@@ -314,6 +314,11 @@ export default function App() {
    * 两个入口都要能返回原处，否则从「我的」进设置、返回却被送到主界面。
    */
   const settingsFrom = useRef<Page>('main');
+  /**
+   * 数据报告是从哪进来的：「我的」右上角，还是日历首页数据条上的本周进度。
+   * 两个入口都要能返回原处，否则从首页点进来、返回却被送到「我的」。
+   */
+  const reportFrom = useRef<Page>('profile');
 
   /**
    * 二级页面是否盖在主界面上：只用来决定主界面吃不吃触摸，不做视觉。
@@ -339,7 +344,9 @@ export default function App() {
   const goBack = useCallback(() => {
     Keyboard.dismiss();
     setPage((p) => {
-      if (p === 'profileEdit' || p === 'report') return 'profile';
+      if (p === 'profileEdit') return 'profile';
+      // 报告页两个入口，各回各家
+      if (p === 'report') return reportFrom.current;
       if (p === 'history') return historyFrom.current;
       if (p === 'detail') return detailFrom.current;
       // 添加页：编辑态退回详情，新建态回主界面（和右上角关闭走同一条路）
@@ -607,7 +614,15 @@ export default function App() {
   }, [editingId]);
 
   const openProfileEdit = useCallback(() => setPage('profileEdit'), []);
-  const openReport = useCallback(() => setPage('report'), []);
+  /** 报告页两个入口：从「我的」进，返回回「我的」；从首页数据条进，返回回首页 */
+  const openReport = useCallback(() => {
+    reportFrom.current = 'profile';
+    setPage('report');
+  }, []);
+  const openReportFromMain = useCallback(() => {
+    reportFrom.current = 'main';
+    setPage('report');
+  }, []);
   /** 内容库 → 段位地图（内容 tab 上的大卡点进来） */
   const openGrades = useCallback(() => setPage('grades'), []);
   /** 段位地图里标记 / 取消「已掌握」。通关要整段掌握，但只要上一段过半，下一段就能挑战 */
@@ -669,6 +684,7 @@ export default function App() {
             avatar={profile.avatar}
             onGoTrain={() => showToast('训练板块即将上线')}
             onAddAt={openAddAt}
+            onOpenReport={openReportFromMain}
           />
         </TabPane>
 
@@ -753,7 +769,9 @@ export default function App() {
           */}
           <SlideScreen
             visible={
-              page === 'profile' || page === 'profileEdit' || page === 'report'
+              page === 'profile' || page === 'profileEdit'
+              // 从「我的」进报告时保持可见；从首页数据条进则不挂这一页，否则背景会错成「我的」
+              || (page === 'report' && reportFrom.current === 'profile')
               // 从"我的"进设置时也留着：返回时这一页还在原位，不用重新挂载、淡入
               || (page === 'settings' && settingsFrom.current === 'profile')
             }

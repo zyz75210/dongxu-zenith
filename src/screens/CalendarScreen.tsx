@@ -12,7 +12,7 @@ import {
   buildMonthCells, Cell, completedStreak, dateKey, dateKeyOf, isFinished, sameDay,
   timeToMinutes, weekdayIndex,
 } from '../utils/date';
-import ScheduleCapsule from '../components/ScheduleCapsule';
+import ScheduleCapsule, { TYPE_NAME } from '../components/ScheduleCapsule';
 
 type Props = {
   /** 全部日程（本页按选中日期过滤并排序） */
@@ -39,6 +39,8 @@ type Props = {
   avatar?: string;
   /** 点卡片「去训练」入口：本轮只弹提示 */
   onGoTrain?: () => void;
+  /** 点数据条右侧的本周进度：进数据报告页看完整统计 */
+  onOpenReport?: () => void;
   /** 长按月历某天：直接在这天新建训练 */
   onAddAt?: (d: { y: number; m: number; d: number }) => void;
 };
@@ -359,7 +361,7 @@ const MonthGrid = memo(function MonthGrid({
 function CalendarScreen({
   onOpenProfile, onOpenAdd, onOpenDetail, onOpenPicker, onSelectDate,
   onOpenSettings, onOpenHistory, schedules, initialDate, onToggleComplete, avatar,
-  onGoTrain, onAddAt,
+  onGoTrain, onAddAt, onOpenReport,
 }: Props) {
   const today = useMemo(() => new Date(), []);
   // 长按新建：用 ref 中转，保持 pressDayLong 的 useCallback 引用稳定
@@ -1089,26 +1091,32 @@ function CalendarScreen({
                     : (statsBar.isPastDay ? '那周没安排' : '还没排')}
               </Text>
             ) : (
-              <>
-                <View style={styles.statsWeekRow}>
-                  {/* 选中历史周还说「本周训练」就是错的，按是否本周切换措辞 */}
-                  <Text style={styles.statsWeekText}>
-                    {statsBar.isThisWeek ? '本周训练' : '当周训练'}
-                  </Text>
-                  <Text style={styles.statsWeekNum}>
-                    {statsBar.weekDone}<Text style={styles.statsWeekTotal}>/{statsBar.weekTotal}</Text>
-                  </Text>
-                  <Text style={styles.statsWeekUnit}>次</Text>
-                </View>
-                <View style={styles.progressTrack}>
-                  <View
-                    style={[
-                      styles.progressFill,
-                      { width: `${Math.min(100, (statsBar.weekDone / statsBar.weekTotal) * 100)}%` },
-                    ]}
-                  />
-                </View>
-              </>
+              /*
+                只留一行「本周 3/7 次 ›」，去掉那条 4px 进度条 ——
+                进度条比例要靠它自己算，读起来是第二道算术题；
+                而「3/7」本身既是数据，又是进分析页的入口。
+              */
+              <TouchableOpacity
+                style={styles.statsWeekRow}
+                activeOpacity={0.6}
+                onPress={onOpenReport}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                {/* 选中历史周还说「本周训练」就是错的，按是否本周切换措辞 */}
+                <Text style={styles.statsWeekText}>
+                  {statsBar.isThisWeek ? '本周训练' : '当周训练'}
+                </Text>
+                <Text style={styles.statsWeekNum}>
+                  {statsBar.weekDone}<Text style={styles.statsWeekTotal}>/{statsBar.weekTotal}</Text>
+                </Text>
+                <Text style={styles.statsWeekUnit}>次</Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={12}
+                  color={C.gray}
+                  style={styles.statsWeekCaret}
+                />
+              </TouchableOpacity>
             )}
           </View>
         </View>
@@ -1144,9 +1152,32 @@ function CalendarScreen({
             />
           ))
         ) : (
+          /*
+            空状态不只是「这天没东西」，它还是新用户第一次打开时唯一的落点。
+            空月历本身零信息量（可以是日历 / 待办 / 记账），所以这里用三个训练色块
+            直接把「这是个练什么的 App」摆出来 —— 视觉，而不是一句说明文字。
+            老用户只要有任意一条日程，就永远看不到这块。
+          */
           <View style={styles.empty}>
-            <Ionicons name="calendar-outline" size={20} color={C.gray} />
-            <Text style={styles.emptyText}>这天还没安排，点 + 加个训练</Text>
+            <View style={styles.emptyTypes}>
+              {(['rope', 'fitness', 'run'] as ScheduleType[]).map((t) => (
+                <View key={t} style={styles.emptyType}>
+                  <View style={[styles.emptyTypeDot, { backgroundColor: C.typeDot[t] }]} />
+                  <Text style={styles.emptyTypeText}>{TYPE_NAME[t]}</Text>
+                </View>
+              ))}
+            </View>
+
+            <Text style={styles.emptyLead}>
+              {isToday
+                ? '今天该动一动啦'
+                : (statsBar.isPastDay ? '这天没安排' : '这天还没安排')}
+            </Text>
+
+            <TouchableOpacity style={styles.emptyCta} activeOpacity={0.85} onPress={onOpenAdd}>
+              <Ionicons name="add" size={15} color={C.white} />
+              <Text style={styles.emptyCtaText}>排一条训练</Text>
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
@@ -1255,10 +1286,22 @@ const styles = StyleSheet.create({
 
   empty: {
     alignItems: 'center', justifyContent: 'center',
-    paddingVertical: 36, gap: 8,
-    borderWidth: 1, borderColor: C.line, borderRadius: 18, borderStyle: 'dashed',
+    paddingVertical: 26, paddingHorizontal: 18, gap: 14,
+    borderWidth: 1, borderColor: C.line, borderRadius: 18,
+    backgroundColor: C.white,
   },
-  emptyText: { fontSize: 12, color: C.gray },
+  // 三个训练色块：新用户第一眼「这是什么 App」的答案，靠视觉不靠文字
+  emptyTypes: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  emptyType: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  emptyTypeDot: { width: 8, height: 8, borderRadius: 4 },
+  emptyTypeText: { fontSize: 12, color: C.text },
+  emptyLead: { fontSize: 13, fontWeight: '500', color: C.text },
+  emptyCta: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: C.primary, borderRadius: 999,
+    paddingHorizontal: 18, paddingVertical: 9,
+  },
+  emptyCtaText: { fontSize: 13, color: C.white, fontWeight: '500' },
 
   // 数据条：连续打卡 + 本周训练进度
   statsBar: {
@@ -1286,14 +1329,8 @@ const styles = StyleSheet.create({
   statsWeekNum: { fontSize: 18, fontWeight: 'bold', color: C.primary, marginLeft: 6 },
   statsWeekTotal: { fontSize: 13, fontWeight: '600', color: C.gray },
   statsWeekUnit: { fontSize: 12, color: C.gray, marginLeft: 2 },
-  progressTrack: {
-    width: 90, height: 4, borderRadius: 2,
-    backgroundColor: '#E5E8EE', marginTop: 6, overflow: 'hidden',
-  },
-  progressFill: {
-    height: 4, borderRadius: 2,
-    backgroundColor: C.primary,
-  },
+  // 箭头告诉用户「这行字能点」，也是唯一说明它是入口的地方
+  statsWeekCaret: { marginLeft: 1, alignSelf: 'center' },
 
   listHeader: {
     flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between',
