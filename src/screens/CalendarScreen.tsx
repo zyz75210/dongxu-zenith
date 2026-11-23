@@ -205,6 +205,7 @@ const MonthGrid = memo(function MonthGrid({
 
   // 有训练的日期：在底灰条(34)下方多延伸一段(DOT_ZONE)，露出放圆点的空间。
   // 按"连续有训练的日期"合并成段：相邻两天都有日程时凸出块直接连起来，中间不留空隙。
+  // 凸出块 top 上移 1px 与主灰条重叠，消除两者交界处的亚像素白缝。
   const tallBands = useMemo(() => {
     const out: { key: string; top: number; left: number; width: number }[] = [];
     rows.forEach((row, r) => {
@@ -212,7 +213,7 @@ const MonthGrid = memo(function MonthGrid({
       const push = (start: number, end: number) => {
         out.push({
           key: `t-${r}-${start}`,
-          top: r * ROW_H + 6 + 34,
+          top: r * ROW_H + 6 + 34 - 1,
           left: (start / 7) * 100,
           width: ((end - start + 1) / 7) * 100,
         });
@@ -964,8 +965,9 @@ const styles = StyleSheet.create({
   },
   // 有训练的日期，在底灰条下方延伸的凸台（放圆点用）：
   // 顶部无缝贴主灰条（无圆角、无分界），两侧近垂直，底部大圆角圆滑收尾
+  // height 比 DOT_ZONE 多 1，补偿 top 上移的 1px，保证底部位置不变
   dayBandTall: {
-    position: 'absolute', height: DOT_ZONE,
+    position: 'absolute', height: DOT_ZONE + 1,
     backgroundColor: '#F2F3F6',
     borderBottomLeftRadius: 10, borderBottomRightRadius: 10,
   },
