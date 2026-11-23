@@ -1113,18 +1113,19 @@ function CalendarScreen({
           </View>
         </View>
 
-        {/* 当天日程标题 */}
+        {/* 当天日程标题：左边一块（标题+数量+操作提示），右边「全部」固定，避免长文案把它挤扁 */}
         <View style={styles.listHeader}>
-          <View style={styles.listTitleRow}>
+          <View style={styles.listLeft}>
             <Text style={styles.listTitle}>
               {sel.m + 1}月{sel.d}日 星期{WEEK_DAYS[weekdayIndex(selDate)]}
             </Text>
+            <Text style={styles.listSub}>
+              {dayCount > 0 ? `${dayCount} 个日程` : '暂无日程'}
+            </Text>
+            {dayCount > 0 && (
+              <Text style={styles.listHint}>点开看详情 · 点标签标完成</Text>
+            )}
           </View>
-          <Text style={styles.listSub}>
-            {dayCount > 0
-              ? `${dayCount} 个日程 · 点开看详情，点标签标完成`
-              : '暂无日程'}
-          </Text>
           <TouchableOpacity activeOpacity={0.7} onPress={onOpenHistory}>
             <Text style={styles.allLink}>全部</Text>
           </TouchableOpacity>
@@ -1295,14 +1296,17 @@ const styles = StyleSheet.create({
   },
 
   listHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between',
     marginBottom: 12,
   },
-  listTitleRow: { flexDirection: 'row', alignItems: 'center' },
+  // flex: 1 让左侧吃满剩余宽度，右侧「全部」不会被长文案挤到边缘
+  listLeft: { flex: 1, paddingRight: 12 },
   listTitle: { fontSize: 15, fontWeight: '600', color: C.text },
   // 「今天」徽章已移除：上方按钮已经能表达「你在今天」，两处重复只增加视觉噪音
   listSub: { fontSize: 11, color: C.gray, marginTop: 3 },
-  allLink: { fontSize: 12, color: C.primary },
+  // 操作提示单独一行、字号再小半号：它是辅助信息，不该和数量抢同一行的空间
+  listHint: { fontSize: 10.5, color: '#A8AEB9', marginTop: 2 },
+  allLink: { fontSize: 12, color: C.primary, marginTop: 1 },
 
   fab: {
     position: 'absolute', right: 20, bottom: 22,
