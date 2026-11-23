@@ -7,7 +7,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { C, WEEK_DAYS } from '../theme';
-import { Schedule } from '../data';
+import { Schedule, ScheduleType } from '../data';
 import {
   buildMonthCells, Cell, dateKey, sameDay, timeToMinutes, weekdayIndex,
 } from '../utils/date';
@@ -45,13 +45,16 @@ const WEEKEND_COLOR = '#FF9A45';
 // 跨月补位日期（上月末尾）的淡化灰
 const DIM_COLOR = '#C4C9D2';
 // 网格行高与行数（最多 6 行，固定高度避免切换月份时跳动）
-const ROW_H = 46;
+// 行高 = 日期数字区(46) + 下方圆点区(DOT_ZONE)，给训练圆点留出空间
+const ROW_H = 54;
 const MAX_ROWS = 6;
+/** 日期数字下方预留的圆点区高度（灰条有训练时才向下延伸到这一段） */
+const DOT_ZONE = 8;
 
 /** 选中圆（液体滑块）的直径，和原来 dayBox 一致 */
 const BLOB = 34;
-/** 选中圆在行内的垂直偏移 */
-const BLOB_TOP = (ROW_H - BLOB) / 2;
+/** 选中圆在行内的垂直偏移（距行顶，保持和原 46 行高时一致，蓝圆位置不变） */
+const BLOB_TOP = 6;
 /** 跨周 / 换月 / 跳转时液滴的起始大小 */
 const BLOOM_FROM = 0.45;
 /** 旧点溶解的时长：新点在这段时间里同步绽放，两段动作重叠，看着才连贯 */
@@ -70,7 +73,7 @@ const EST_W = Dimensions.get('window').width - 40;
  * 所以一次选中只有"原来的那天"和"新的那天"两格真正重渲染。
  */
 const DayCell = memo(function DayCell({
-  cell, gy, gm, col, isSel, paint, onPressDay,
+  cell, gy, gm, col, isSel, paint, dots, onPressDay,
 }: {
   cell: Cell;
   gy: number;
@@ -79,6 +82,8 @@ const DayCell = memo(function DayCell({
   col: number;
   isSel: boolean;
   paint: boolean;
+  /** 该日期的训练类型数组（去重后），用来在数字下方画小圆点 */
+  dots: ScheduleType[];
   onPressDay: (cell: Cell, gy: number, gm: number) => void;
 }) {
   // 三种状态用三个静态样式对象，不再每次渲染新建 { color } 对象
@@ -96,6 +101,15 @@ const DayCell = memo(function DayCell({
       <View style={styles.dayBox}>
         <Text style={textStyle}>{cell.day}</Text>
       </View>
+      {dots.length > 0 ? (
+        <View style={styles.dotRow}>
+          {dots.map((t, i) => (
+            <View key={i} style={[styles.dot, { backgroundColor: C.typeDot[t] }]} />
+          ))}
+        </View>
+      ) : (
+        <View style={styles.dotRowEmpty} />
+      )}
     </TouchableOpacity>
   );
 });
@@ -129,7 +143,7 @@ const MonthGrid = memo(function MonthGrid({
   y, m, selDay, paint, withBlob,
   blobX, blobY, grow, blobOpacity,
   ghostX, ghostY, ghostScale, ghostOpacity,
-  onPressDay,
+  dotsByDay, onPressDay,
 }: {
   y: number;
   m: number;
@@ -147,6 +161,8 @@ const MonthGrid = memo(function MonthGrid({
   ghostY: Animated.Value;
   ghostScale: Animated.Value;
   ghostOpacity: Animated.Value;
+  /** 日期键 → 该日训练类型数组（去重），供日期格画圆点 */
+  dotsByDay: Map<string, ScheduleType[]>;
   onPressDay: (cell: Cell, gy: number, gm: number) => void;
 }) {
   const cells = useMemo(() => buildMonthCells(y, m), [y, m]);
@@ -187,6 +203,34 @@ const MonthGrid = memo(function MonthGrid({
     return out;
   }, [rows]);
 
+  // 有训练的日期：在底灰条(34)下方多延伸一段(DOT_ZONE)，露出放圆点的空间。
+  // 也按"连续有训练的日期"合并成段，一次算好，渲染时不新建对象。
+  const tallBands = useMemo(() => {
+    const out: { key: string; top: number; left: number; width: number }[] = [];
+    rows.forEach((row, r) => {
+      let s = -1;
+      const push = (start: number, end: number) => {
+        out.push({
+          key: `t-${r}-${start}`,
+          top: r * ROW_H + 6 + 34,
+          left: (start / 7) * 100,
+          width: ((end - start + 1) / 7) * 100,
+        });
+      };
+      row.forEach((cell, i) => {
+        const has = cell !== null && cell.type === 'cur'
+          && (dotsByDay.get(dateKey(y, m, cell.day))?.length ?? 0) > 0;
+        if (has && s === -1) s = i;
+        if (!has && s !== -1) {
+          push(s, i - 1);
+          s = -1;
+        }
+      });
+      if (s !== -1) push(s, 6);
+    });
+    return out;
+  }, [rows, dotsByDay, y, m]);
+
   return (
     <View style={styles.gridPage}>
       {bands.map((b) => (
@@ -194,6 +238,16 @@ const MonthGrid = memo(function MonthGrid({
           key={b.key}
           style={[
             styles.dayBand,
+            { top: b.top, left: `${b.left}%`, width: `${b.width}%` },
+          ]}
+        />
+      ))}
+
+      {tallBands.map((b) => (
+        <View
+          key={b.key}
+          style={[
+            styles.dayBandTall,
             { top: b.top, left: `${b.left}%`, width: `${b.width}%` },
           ]}
         />
@@ -257,6 +311,7 @@ const MonthGrid = memo(function MonthGrid({
                 col={i}
                 isSel={cell.type === 'cur' && cell.day === selDay}
                 paint={paint}
+                dots={cell.type === 'cur' ? (dotsByDay.get(dateKey(y, m, cell.day)) ?? []) : []}
                 onPressDay={onPressDay}
               />
             )
@@ -547,6 +602,22 @@ function CalendarScreen({
   );
   const dayCount = daySchedules.length;
 
+  // 日期键 → 该日训练类型（去重、按固定顺序），供月历格画圆点
+  const dotsByDay = useMemo(() => {
+    const map = new Map<string, ScheduleType[]>();
+    const order: ScheduleType[] = ['rope', 'fitness', 'run'];
+    for (const s of schedules) {
+      const arr = map.get(s.date);
+      if (!arr) {
+        map.set(s.date, [s.type]);
+      } else if (!arr.includes(s.type)) {
+        arr.push(s.type);
+        arr.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+      }
+    }
+    return map;
+  }, [schedules]);
+
   const prevDate = new Date(view.y, view.m - 1, 1);
   const nextDate = new Date(view.y, view.m + 1, 1);
 
@@ -757,6 +828,7 @@ function CalendarScreen({
                 ghostY={ghostY}
                 ghostScale={ghostScale}
                 ghostOpacity={ghostOpacity}
+                dotsByDay={dotsByDay}
                 onPressDay={pressDay}
               />
             </View>
@@ -775,6 +847,7 @@ function CalendarScreen({
                 ghostY={ghostY}
                 ghostScale={ghostScale}
                 ghostOpacity={ghostOpacity}
+                dotsByDay={dotsByDay}
                 onPressDay={pressDay}
               />
             </View>
@@ -793,6 +866,7 @@ function CalendarScreen({
                 ghostY={ghostY}
                 ghostScale={ghostScale}
                 ghostOpacity={ghostOpacity}
+                dotsByDay={dotsByDay}
                 onPressDay={pressDay}
               />
             </View>
@@ -888,6 +962,12 @@ const styles = StyleSheet.create({
     position: 'absolute', height: 34,
     backgroundColor: '#F2F3F6', borderRadius: 10,
   },
+  // 有训练的日期，在底灰条下方延伸的一段（放圆点用），圆角与底灰条衔接
+  dayBandTall: {
+    position: 'absolute', height: DOT_ZONE,
+    backgroundColor: '#F2F3F6',
+    borderBottomLeftRadius: 10, borderBottomRightRadius: 10,
+  },
   // 选中态的液体滑块：尺寸/圆角显式写死，避免安卓上圆角丢失变成方块
   // 位置完全由 translateX / translateY 决定（left/top 固定 0），方便用 native driver
   blob: {
@@ -895,12 +975,21 @@ const styles = StyleSheet.create({
     width: BLOB, height: BLOB, borderRadius: BLOB / 2,
     backgroundColor: C.primary,
   },
-  cell: { width: '14.2857%', alignItems: 'center', justifyContent: 'center' },
+  cell: {
+    width: '14.2857%',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
   dayBox: {
     width: BLOB, height: BLOB, borderRadius: BLOB / 2,
     alignItems: 'center', justifyContent: 'center',
     flexShrink: 0, overflow: 'hidden',
+    marginTop: BLOB_TOP,
   },
+  // 训练圆点：日期数字正下方，横排，同类聚合（每种类型一个点，最多 3 个）
+  dotRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 3, height: 4 },
+  dotRowEmpty: { height: 7 },
+  dot: { width: 4, height: 4, borderRadius: 2 },
   // 三个静态文字样式：日期数字统一深灰；选中后加粗；液滴到位后再变白
   // （Android 中文对数字字重响应差，用 'bold' 更稳；字号微增让加粗更明显）
   // 非选中态再按 周末橙 / 跨月淡化 区分，选中逻辑（dayWait/dayOn）保持原样
