@@ -13,7 +13,7 @@ import {
   timeToMinutes, weekdayIndex,
 } from '../utils/date';
 import ScheduleCapsule, { TYPE_NAME } from '../components/ScheduleCapsule';
-import StreakFlame, { streakMilestone, streakSub } from '../components/StreakFlame';
+import StreakFlame, { streakSub } from '../components/StreakFlame';
 
 type Props = {
   /** 全部日程（本页按选中日期过滤并排序） */
@@ -765,9 +765,8 @@ function CalendarScreen({
       return {
         icon: 'flame', color: C.fire, flame: 'solid',
         prefix: '已坚持', num: String(statsBar.streak), unit: '天',
-        // 刚跨过 10 / 30 / 60 / 100 的那一天说一句专属的，第二天回落到档位句
-        sub: streakMilestone(statsBar.streak)
-          ?? (restOnlyToday ? '该歇就歇，才练得久' : streakSub(statsBar.streak)),
+        // 副文案跟着阶位走：每满 10 天换一句，和火焰的华丽度同步升级
+        sub: restOnlyToday ? '该歇就歇，才练得久' : streakSub(statsBar.streak),
       };
     }
     // ② 今天还没完成，但有连续记录 → 档位色线性，亮着但没实心：提醒今天还差一次

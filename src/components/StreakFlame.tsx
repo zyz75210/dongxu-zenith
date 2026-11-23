@@ -2,14 +2,16 @@ import React, { memo } from 'react';
 import Svg, { Circle, Path } from 'react-native-svg';
 
 /**
- * 连续打卡的火焰图标（自绘）。
+ * 连续打卡的火焰图标（自绘 + 参数化）。
  *
- * 为什么不用 Ionicons：它只有 flame / flame-outline 两种，做不出「越练越旺」的层次。
- * 这里用三个维度叠加表达档位，越往上层越稀有：
- *   轮廓（线性 / 实心） × 颜色（橙 → 红 → 深红） × 装饰（内焰 → 光晕 → 光点）
+ * 为什么不用 Ionicons：它只有 flame / flame-outline 两种，做不出「越练越旺」。
+ * 为什么不手工一档一档画：每 10 天一个变化，一年就是 36 档，画不出 36 个能辨清的形态。
  *
- * 阈值故意做「稀疏递进」而不是每 10 天一跳：
- * 前 10 天靠意志最难，后 100 天靠习惯最容易，跨度越往后越大，后面的档位才值钱。
+ * 所以这里用「一个火焰 + 可叠加的装饰层」，装饰由天数算出来：
+ *   每满 10 天升一阶 → 颜色更热、火星 +1、火焰略大；到第 3 阶起加光晕，第 1 阶起加内焰。
+ * 同一个火焰骨架，越往上叠得越满，这就是「越来越华丽」——而且永远不会有画不出来的档位。
+ *
+ * 阈值每 10 天，最高 10 阶（100 天封顶），之后只涨天数不再升阶，避免 300 天做出一个火球。
  */
 
 /** 主火焰轮廓 */
@@ -22,70 +24,61 @@ const INNER_PATH =
   'M12 9.4c.5 1.7 1.5 2.3 2.3 3.4.8.9 1.2 1.9 1.2 2.9 0 2.1-1.6 3.3-3.5 3.3'
   + 's-3.5-1.2-3.5-3.3c0-1 .4-1.9 1-2.6.4.6.8.9 1.3 1-.3-1.6.1-3.2 1.2-4.7z';
 
-/** 档位阈值（升序）。改这里等于改「几档、什么坎」 */
-export const STREAK_THRESHOLDS = [10, 30, 60, 100] as const;
+/** 每满多少天升一阶 */
+export const STREAK_STEP_DAYS = 10;
+/** 最高阶数：100 天之后只涨天数，不再加装饰，否则会变成一个火球 */
+export const STREAK_MAX_TIER = 10;
 
-type TierLook = {
-  /** 该档的火焰颜色 */
-  color: string;
-  /** 是否叠内焰 */
-  inner: boolean;
-  /** 是否加外圈光晕 */
-  halo: boolean;
-  /** 外面撒几颗光点（0 / 2 / 3） */
-  dots: number;
-  /** 达到档位后，平时（非里程碑）那句副文案 */
-  sub: string;
-};
-
-/** 五档外观，索引 = streakTier() 的返回值 */
-export const STREAK_TIERS: TierLook[] = [
-  // 1–9 天：刚点着，火苗还小
-  { color: '#FF9A45', inner: false, halo: false, dots: 0, sub: '明天见' },
-  // 10–29 天：第一次成势
-  { color: '#FF7A29', inner: true, halo: false, dots: 0, sub: '十天下去了，习惯在长' },
-  // 30–59 天：跨月，从坚持变成日常
-  { color: '#F0442E', inner: true, halo: true, dots: 0, sub: '一个月，这已经是你的节奏' },
-  // 60–99 天：两个月，已经超过绝大多数人
-  { color: '#D93A1F', inner: true, halo: true, dots: 2, sub: '两个月，别人追不上了' },
-  // 100 天以上
-  { color: '#B8270E', inner: true, halo: true, dots: 3, sub: '一百天，这事儿拿下了' },
+/**
+ * 11 阶色阶（0–10）：从「刚点着的暖橙」烧到「烧透的深红」。
+ * 相邻两阶差得很小，用户不会觉得每 10 天都在变色；
+ * 但每 10 天回头比一次，就能看出确实更热了。
+ */
+const COLORS = [
+  '#FFB067', '#FF9A45', '#FF8A33', '#FF7A29', '#F86A22',
+  '#F0542A', '#E8452C', '#D93A1F', '#C82E14', '#BC2A10', '#B8270E',
 ];
 
-/** 刚好跨过阈值那一天说一句专属的，第二天回落到档位句 */
-const MILESTONES: Record<number, string> = {
-  10: '两位数了，别停在这',
-  30: '整一个月，你把它做成了习惯',
-  60: '两个月，这已经不是坚持了',
-  100: '一百天。说出去没人信那种',
-};
+/** 火星位置：最多 5 颗，散布在火焰外圈（0–5 阶逐步点亮） */
+const SPARKS: { x: number; y: number; r: number }[] = [
+  { x: 19.7, y: 5.2, r: 1.25 },
+  { x: 4.2, y: 8.6, r: 1.05 },
+  { x: 20, y: 13.4, r: 0.9 },
+  { x: 5, y: 16.2, r: 0.85 },
+  { x: 15.4, y: 2.2, r: 0.75 },
+];
 
-/** 连续天数落在第几档（0 起） */
-export function streakTier(streak: number): number {
-  let tier = 0;
-  for (let i = 0; i < STREAK_THRESHOLDS.length; i += 1) {
-    if (streak >= STREAK_THRESHOLDS[i]) tier = i + 1;
-  }
-  // 1–9 天也是 0 档；0 天由组件单独处理成灰色线性
-  return tier;
-}
-
-/** 里程碑当天的专属句，不是那几天就返回 null */
-export function streakMilestone(streak: number): string | null {
-  return MILESTONES[streak] ?? null;
-}
-
-/** 平时那句副文案（非里程碑） */
-export function streakSub(streak: number): string {
-  return STREAK_TIERS[streakTier(streak)].sub;
-}
+/** 每阶那句副文案：也是每 10 天换一次，和火焰同步「升一级」 */
+const SUBS = [
+  '火苗点着了',
+  '两位数了，稳住',
+  '二十天，身体开始认这件事',
+  '一个月，节奏出来了',
+  '四十天，靠的不只是意志了',
+  '五十天，走完一半',
+  '两个月，别人追不上了',
+  '七十天，稳得不像话',
+  '八十天，一百在望',
+  '九十天，就差最后一步',
+  '一百天，这事儿你拿下了',
+];
 
 const GRAY = '#C4C9D2';
-const DOT_POS: { x: number; y: number; r: number }[] = [
-  { x: 19.4, y: 5.8, r: 1.3 },
-  { x: 4.4, y: 8.4, r: 0.9 },
-  { x: 19.8, y: 13.6, r: 0.8 },
-];
+
+/** 连续天数落在第几阶（0 起，封顶 STREAK_MAX_TIER） */
+export function streakTier(streak: number): number {
+  return Math.min(Math.floor(streak / STREAK_STEP_DAYS), STREAK_MAX_TIER);
+}
+
+/** 该阶对应的副文案（非 0 天时使用） */
+export function streakSub(streak: number): string {
+  return SUBS[streakTier(streak)];
+}
+
+/** 该阶对应的火焰色，供别的页面（比如「我的」的连续天数）取同一个色 */
+export function streakColor(streak: number): string {
+  return COLORS[streakTier(streak)];
+}
 
 type Props = {
   /** 连续打卡天数 */
@@ -96,23 +89,31 @@ type Props = {
 };
 
 /**
- * 火焰 = 轮廓（今天做到没有） × 档位（连续多久）。
+ * 火焰 = 轮廓（今天做到没有） × 阶位（连续多久）。
  * - 0 天：灰色线性，表示还没开始
- * - 有记录但今天没完成：档位色线性，亮着但没烧起来
- * - 今天完成了：档位色实心 + 该档的装饰
+ * - 有记录但今天没完成：阶位色线性，亮着但没烧起来
+ * - 今天完成了：阶位色实心 + 该阶的装饰（内焰 / 火星 / 光晕）
  */
 function StreakFlame({ streak, doneToday, size = 17 }: Props) {
   const tier = streakTier(streak);
-  const look = STREAK_TIERS[tier];
   const started = streak > 0;
   const solid = started && doneToday;
-  const color = started ? look.color : GRAY;
+
+  const color = started ? COLORS[tier] : GRAY;
+  // 升阶时火焰一起变大一点：形状变不了太多，但「更大」是 17px 下最好认的变化
+  const px = size + tier * 0.4;
+
+  const sparkCount = Math.min(tier, SPARKS.length);
+  const showInner = tier >= 1;
+  const showHalo = tier >= 3;
+  // 光晕随阶位变大变浓，是「华丽」最主要的观感来源
+  const haloR = 8 + tier * 0.45;
+  const haloOpacity = 0.08 + tier * 0.012;
 
   return (
-    <Svg width={size} height={size} viewBox="0 0 24 24">
-      {/* 光晕：垫在火焰后面的浅色圆，只为让它「远看更亮」，不参与形状识别 */}
-      {solid && look.halo && (
-        <Circle cx={12} cy={11.6} r={10.4} fill={color} fillOpacity={0.12} />
+    <Svg width={px} height={px} viewBox="0 0 24 24">
+      {solid && showHalo && (
+        <Circle cx={12} cy={11.8} r={haloR} fill={color} fillOpacity={haloOpacity} />
       )}
 
       <Path
@@ -123,13 +124,18 @@ function StreakFlame({ streak, doneToday, size = 17 }: Props) {
         strokeLinejoin="round"
       />
 
-      {solid && look.inner && (
-        <Path d={INNER_PATH} fill="#FFF3E6" fillOpacity={0.9} />
-      )}
+      {solid && showInner && <Path d={INNER_PATH} fill="#FFF3E6" fillOpacity={0.9} />}
 
       {solid &&
-        DOT_POS.slice(0, look.dots).map((d) => (
-          <Circle key={`${d.x}-${d.y}`} cx={d.x} cy={d.y} r={d.r} fill={color} fillOpacity={0.45} />
+        SPARKS.slice(0, sparkCount).map((s) => (
+          <Circle
+            key={`${s.x}-${s.y}`}
+            cx={s.x}
+            cy={s.y}
+            r={s.r}
+            fill={color}
+            fillOpacity={0.45}
+          />
         ))}
     </Svg>
   );
