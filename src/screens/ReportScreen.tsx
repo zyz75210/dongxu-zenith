@@ -9,7 +9,7 @@ import { TYPE_NAME } from '../components/ScheduleCapsule';
 const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
 
 /** 类型展示的兜底顺序：数量相同的时候按这个排 */
-const TYPES: ScheduleType[] = ['rope', 'fitness', 'run'];
+const TYPES: ScheduleType[] = ['rope', 'fitness', 'run', 'rest'];
 
 // 环形进度：外径正好 RING，线宽全部落在里面，不会超出画布
 const RING = 126;

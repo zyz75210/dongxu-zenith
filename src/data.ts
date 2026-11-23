@@ -1,8 +1,9 @@
 // 应用内的数据模型与初始值
 
-// 训练计划三大分类：跳绳（核心）/ 体能（辅助）/ 跑步
+// 日程分类：跳绳（核心）/ 体能（辅助）/ 跑步 / 休息
+// 「休息」不是偷懒——它是计划内的一部分，勾完成同样算打卡，避免用户为不断签而硬练
 export type ScheduleType =
-  | 'rope' | 'fitness' | 'run';
+  | 'rope' | 'fitness' | 'run' | 'rest';
 
 export type Schedule = {
   id: string;

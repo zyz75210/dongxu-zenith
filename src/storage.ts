@@ -30,7 +30,7 @@ export type LoadedData = {
 };
 
 const SCHEDULE_TYPES: readonly ScheduleType[] = [
-  'rope', 'fitness', 'run',
+  'rope', 'fitness', 'run', 'rest',
 ];
 
 function isRecord(v: unknown): v is Record<string, unknown> {

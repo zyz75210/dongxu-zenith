@@ -6,7 +6,7 @@ import ScheduleStatusPill, { PillState } from './ScheduleStatusPill';
 
 /** 类型中文名：tag 缺失时兜底 */
 export const TYPE_NAME: Record<ScheduleType, string> = {
-  rope: '跳绳', fitness: '体能', run: '跑步',
+  rope: '跳绳', fitness: '体能', run: '跑步', rest: '休息',
 };
 
 type Props = {

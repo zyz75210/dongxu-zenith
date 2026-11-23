@@ -17,7 +17,7 @@ type Props = {
 };
 
 const typeName: Record<string, string> = {
-  rope: '跳绳', fitness: '体能', run: '跑步',
+  rope: '跳绳', fitness: '体能', run: '跑步', rest: '休息',
 };
 
 function DetailScreen({

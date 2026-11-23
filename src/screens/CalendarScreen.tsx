@@ -49,6 +49,11 @@ const DAY_TEXT_COLOR = '#2F3239';
 const WEEKEND_COLOR = '#FF9A45';
 // 跨月补位日期（上月末尾）的淡化灰
 const DIM_COLOR = '#C4C9D2';
+/**
+ * 是不是训练类。休息不算训练，统计口径要分开算：
+ * 用户安排了休息日不代表「这周练了」，否则「本周训练 X/Y」会被休息撑虚。
+ */
+const isTraining = (s: Schedule) => s.type !== 'rest';
 // 网格行高与行数（最多 6 行，固定高度避免切换月份时跳动）
 // 行高 = 日期数字区(46) + 下方圆点区(DOT_ZONE)，给训练圆点留出空间
 const ROW_H = 54;
@@ -638,7 +643,8 @@ function CalendarScreen({
   // 日期键 → 该日训练类型（去重、按固定顺序），供月历格画圆点
   const dotsByDay = useMemo(() => {
     const map = new Map<string, ScheduleType[]>();
-    const order: ScheduleType[] = ['rope', 'fitness', 'run'];
+    // 圆点顺序固定为 跳绳 → 体能 → 跑步 → 休息，休息排最后（它是低饱和灰蓝，放边上不抢眼）
+    const order: ScheduleType[] = ['rope', 'fitness', 'run', 'rest'];
     for (const s of schedules) {
       const arr = map.get(s.date);
       if (!arr) {
@@ -663,10 +669,13 @@ function CalendarScreen({
     const mk = dateKeyOf(monday);
     const sk = dateKeyOf(sunday);
     const week = schedules.filter((s) => s.date >= mk && s.date <= sk);
+    // 训练和休息分开算：休息日不算「练了一次」，否则进度条会被休息撑虚
+    const weekTrain = week.filter(isTraining);
     return {
       streak,
-      weekDone: week.filter((s) => s.completed).length,
-      weekTotal: week.length,
+      weekDone: weekTrain.filter((s) => s.completed).length,
+      weekTotal: weekTrain.length,
+      weekRest: week.length - weekTrain.length,
       /** 选中的周是不是「今天所在的那一周」：决定右边说「本周」还是「当周」 */
       isThisWeek: todayKey >= mk && todayKey <= sk,
       /** 选中日期相对今天的位置：左边那句短话的语义完全由它决定 */
@@ -689,8 +698,12 @@ function CalendarScreen({
     text?: string;
     sub: string;
   } => {
-    const doneCount = daySchedules.filter((s) => s.completed).length;
     const total = daySchedules.length;
+    const doneCount = daySchedules.filter((s) => s.completed).length;
+    // 训练与休息分开：文案要对得上「练了」还是「歇了」，不能混着说
+    const trainList = daySchedules.filter(isTraining);
+    const trainTotal = trainList.length;
+    const trainDone = trainList.filter((s) => s.completed).length;
 
     // 未来：还没发生，只陈述排了几条，不做任何评价
     if (statsBar.isFutureDay) {
@@ -701,30 +714,48 @@ function CalendarScreen({
 
     // 历史：说那天的结果
     if (statsBar.isPastDay) {
-      // 那天压根没排训练——别说「忙忘啦」，那是在冤枉人
+      // 那天压根没排——别说「忙忘啦」，那是在冤枉人
       if (total === 0) {
         return { icon: 'remove-outline', color: C.gray, text: '没安排', sub: '那天休息也挺好' };
       }
-      if (doneCount === total) {
+      // 那天只排了休息：这是计划内的恢复日，不能按「训练完成率」去算
+      if (trainTotal === 0) {
+        return doneCount === total
+          ? { icon: 'moon', color: C.typeDot.rest, text: '休息到位', sub: '恢复也是训练的一部分' }
+          : { icon: 'moon-outline', color: C.gray, text: '休息没打卡', sub: '下次记得勾一下' };
+      }
+      if (trainDone === trainTotal) {
         return { icon: 'checkmark-circle', color: C.done, text: '全部完成', sub: '真棒，这天练到了' };
       }
-      if (doneCount > 0) {
+      if (trainDone > 0) {
         return {
           icon: 'checkmark-circle-outline', color: C.halfUp,
-          text: `完成 ${doneCount}/${total}`, sub: '还差一点，下次补上',
+          text: `完成 ${trainDone}/${trainTotal}`, sub: '还差一点，下次补上',
         };
       }
       return { icon: 'ellipse-outline', color: C.gray, text: '没完成', sub: '忙忘啦，有点可惜' };
     }
 
-    // 今天：当下的连续战绩
-    if (statsBar.streak > 0) {
+    // 今天：火焰三态，严格对应「今天做到了没有」
+    // ① 今天已经完成过（训练或休息都算）→ 实心橙，真的点亮了
+    if (doneCount > 0) {
       return {
         icon: 'flame', color: C.fire,
         prefix: '已坚持', num: String(statsBar.streak), unit: '天',
         sub: '保持住，加油哦',
       };
     }
+    // ② 今天还没完成，但有连续记录 → 线性橙，亮着但没实心：提醒今天还差一次
+    if (statsBar.streak > 0) {
+      // 今天排的只有休息，说「还没练」就错了
+      const restOnlyToday = trainTotal === 0 && total > 0;
+      return {
+        icon: 'flame-outline', color: C.fire,
+        prefix: '已坚持', num: String(statsBar.streak), unit: '天',
+        sub: restOnlyToday ? '休息日记得打卡' : '今天还没练哦',
+      };
+    }
+    // ③ 完全没记录 → 线性灰
     return {
       icon: 'flame-outline', color: C.gray,
       text: '今天开始',
@@ -1037,11 +1068,13 @@ function CalendarScreen({
 
           <View style={styles.statsRight}>
             {statsBar.weekTotal === 0 ? (
-              // 这一周没排训练：不显示 0/0 和空进度条，改成对应时间态的引导
+              // 这一周没有训练安排：先看有没有排休息（排了就不是「没安排」）
               <Text style={styles.statsEmpty}>
-                {statsBar.isThisWeek
-                  ? '该运动啦 ›'
-                  : (statsBar.isPastDay ? '那周没安排' : '还没排')}
+                {statsBar.weekRest > 0
+                  ? `${statsBar.isThisWeek ? '本周' : '当周'}休息 ${statsBar.weekRest} 天`
+                  : statsBar.isThisWeek
+                    ? '该运动啦 ›'
+                    : (statsBar.isPastDay ? '那周没安排' : '还没排')}
               </Text>
             ) : (
               <>

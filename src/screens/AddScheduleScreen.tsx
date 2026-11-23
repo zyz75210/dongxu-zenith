@@ -32,6 +32,7 @@ const types: { key: ScheduleType; label: string }[] = [
   { key: 'rope', label: '跳绳' },
   { key: 'fitness', label: '体能' },
   { key: 'run', label: '跑步' },
+  { key: 'rest', label: '休息' },
 ];
 
 const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
@@ -159,6 +160,19 @@ function AddScheduleScreen({
 
   // 点日期：复用首页那套年月日滚轮
   const openDate = () => onOpenDate(date, (y, m, d) => setDate({ y, m, d }));
+  /**
+   * 选类型：标题还停在初始默认值「跳绳训练」时，跟着类型一起换，
+   * 否则会出现「休息 / 跳绳训练」这种自相矛盾的搭配。
+   * 用户自己改过标题就不碰他的内容。
+   */
+  const pickType = (key: ScheduleType) => {
+    if (title === BLANK.title) {
+      const label = types.find((t) => t.key === key)?.label ?? '';
+      setTitle(key === 'rest' ? '休息日' : `${label}训练`);
+    }
+    setType(key);
+  };
+
   // 点开始/结束时间：同一个时间滚轮，只是标题和初值不同
   const openStart = () => onOpenTime('开始时间', start, (h, m) => setStart({ h, m }));
   const openEnd = () => onOpenTime('结束时间', end, (h, m) => setEnd({ h, m }));
@@ -292,7 +306,7 @@ function AddScheduleScreen({
               <TouchableOpacity
                 key={t.key}
                 style={[styles.typePill, on && styles.typePillOn]}
-                onPress={() => setType(t.key)}
+                onPress={() => pickType(t.key)}
                 activeOpacity={0.7}
               >
                 <View style={[styles.typeDot, { backgroundColor: C.typeDot[t.key] }]} />
@@ -402,10 +416,11 @@ const styles = StyleSheet.create({
   vDivider: { width: 1, backgroundColor: C.line, marginVertical: 12, marginHorizontal: 10 },
 
   typeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  // 六大分类：两行三列等宽，胶囊样式不变
+  // 四个分类（跳绳/体能/跑步/休息）等分一行：flexBasis 0 让它们自己均分宽度，
+  // 不写死百分比，窄屏也不会挤到第二行
   typePill: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    flexGrow: 1, flexBasis: '30%',
+    flexGrow: 1, flexBasis: 0,
     paddingHorizontal: 13, paddingVertical: 8,
     borderRadius: 999, borderWidth: 1, borderColor: C.line, backgroundColor: C.bg,
   },
