@@ -1149,7 +1149,9 @@ function CalendarScreen({
                 {statsBar.weekRest > 0
                   ? `${statsBar.isThisWeek ? '本周' : '当周'}休息 ${statsBar.weekRest} 天`
                   : statsBar.isThisWeek
-                    ? '这周还空着 ›'
+                    // 整周一条训练都没有：给一个"接下来做什么"，比一句「这周还空着」有用。
+                    // 不带 › ：它不可点（点了没反应的东西标成链接是骗人），只是一句提示。
+                    ? '下滑开始安排运动吧'
                     : (statsBar.isPastDay ? '那周是空的' : '还空着')}
               </Text>
             ) : (
@@ -1195,7 +1197,7 @@ function CalendarScreen({
             {/* 提示只在「本月还没勾过任何一条」时出现：学会一次就永久退场 */}
             {dayCount > 0 && !monthTouched && (
               <Text style={styles.listHint} numberOfLines={1}>
-                点开看详情 · 点标签标完成
+                先点开看详情 · 点标签标完成
               </Text>
             )}
           </View>
