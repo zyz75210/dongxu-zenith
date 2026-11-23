@@ -949,9 +949,16 @@ function CalendarScreen({
         <View style={styles.statsBar}>
           <View style={styles.statsLeft}>
             <View style={styles.statsFireRow}>
-              <Text style={styles.statsFire}>🔥</Text>
-              <Text style={styles.statsStreakNum}>{statsBar.streak}</Text>
-              <Text style={styles.statsStreakLabel}>天</Text>
+              {/* 用 App 同款 Ionicons 扁平火焰替代 emoji：emoji 是全彩写实风，和扁平界面不是一套 */}
+              <Ionicons
+                name="flame"
+                size={17}
+                color={statsBar.streak > 0 ? WEEKEND_COLOR : C.gray}
+              />
+              <View style={styles.statsStreakPair}>
+                <Text style={styles.statsStreakNum}>{statsBar.streak}</Text>
+                <Text style={styles.statsStreakLabel}>天</Text>
+              </View>
             </View>
             <Text style={styles.statsStreakSub}>
               {statsBar.weekTotal === 0 ? '该运动啦' : '保持住，别断签'}
@@ -1139,9 +1146,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 12, marginBottom: 18,
   },
   statsLeft: {},
-  statsFireRow: { flexDirection: 'row', alignItems: 'baseline' },
-  statsFire: { fontSize: 16 },
-  statsStreakNum: { fontSize: 22, fontWeight: 'bold', color: C.text, marginLeft: 4 },
+  statsFireRow: { flexDirection: 'row', alignItems: 'center' },
+  // 数字和「天」用 baseline 对齐，图标用外层 center 对齐数字块，不会一高一低
+  statsStreakPair: { flexDirection: 'row', alignItems: 'baseline', marginLeft: 5 },
+  statsStreakNum: { fontSize: 22, fontWeight: 'bold', color: C.text },
   statsStreakLabel: { fontSize: 12, color: C.gray, marginLeft: 2 },
   statsStreakSub: { fontSize: 11, color: C.gray, marginTop: 3 },
   statsRight: { alignItems: 'flex-end' },
@@ -1149,7 +1157,8 @@ const styles = StyleSheet.create({
   statsEmpty: { fontSize: 13, color: C.primary, fontWeight: '500' },
   statsWeekRow: { flexDirection: 'row', alignItems: 'baseline' },
   statsWeekText: { fontSize: 12, color: C.gray },
-  statsWeekNum: { fontSize: 18, fontWeight: 'bold', color: '#16864A', marginLeft: 6 },
+  // 和右侧「该运动啦」同一个主色蓝：同一块区域两种状态用同一套色，视觉连贯
+  statsWeekNum: { fontSize: 18, fontWeight: 'bold', color: C.primary, marginLeft: 6 },
   statsWeekTotal: { fontSize: 13, fontWeight: '600', color: C.gray },
   statsWeekUnit: { fontSize: 12, color: C.gray, marginLeft: 2 },
   progressTrack: {
@@ -1158,7 +1167,7 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: 4, borderRadius: 2,
-    backgroundColor: '#16864A',
+    backgroundColor: C.primary,
   },
 
   listHeader: {
