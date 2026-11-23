@@ -714,6 +714,15 @@ function CalendarScreen({
   }, [schedules, sel, todayKey, dayKey]);
 
   /**
+   * 有没有过训练记录。休息日不算训练（它不需要人动手），
+   * 所以只排过休息日、或者把历史里的训练全删了，这里都会是 false。
+   */
+  const hasTraining = useMemo(
+    () => schedules.some((s) => s.type !== 'rest'),
+    [schedules],
+  );
+
+  /**
    * 数据条左侧那句短话。
    * 今天 → 说「当下的连续战绩」；历史 → 说「那天的结果」；未来 → 只说「安排」。
    * 三种时间态必须分开，否则会出现「三个月前的那天，你已坚持 12 天」这种驴唇不对马嘴。
@@ -799,11 +808,13 @@ function CalendarScreen({
     }
     // 今天一条都没排：这就是空态。数据条只说事实，不劝 ——
     // 一屏只劝一次，劝的活归下方那张空态卡（它有三个训练色块和按钮）
+    // 但如果连一条训练记录都没有（新用户，或把历史都删光了），
+    // 「今天还没排」是在陈述一件他不知道怎么改的事，换成「第一次来？」才对得上他现在的处境。
     return {
       icon: 'flame-outline', color: C.gray, flame: 'linear',
-      text: '今天还没排',
+      text: hasTraining ? '今天还没排' : '第一次来？',
     };
-  }, [daySchedules, statsBar]);
+  }, [daySchedules, statsBar, hasTraining]);
 
   const prevDate = new Date(view.y, view.m - 1, 1);
   const nextDate = new Date(view.y, view.m + 1, 1);
