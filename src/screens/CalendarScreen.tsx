@@ -1193,7 +1193,7 @@ function CalendarScreen({
             )}
           </View>
           <Text style={styles.listSub}>
-            {dayCount > 0 ? `${dayCount} 个日程` : '暂无日程'}
+            {dayCount > 0 ? `${dayCount} 个日程` : '暂无训练'}
           </Text>
         </View>
 
