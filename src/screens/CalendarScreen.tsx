@@ -39,6 +39,8 @@ type Props = {
   avatar?: string;
   /** 点卡片「去训练」入口：本轮只弹提示 */
   onGoTrain?: () => void;
+  /** 长按月历某天：直接在这天新建训练 */
+  onAddAt?: (d: { y: number; m: number; d: number }) => void;
 };
 
 // 月历日期数字统一颜色：比黑色淡一点的深灰
@@ -76,7 +78,7 @@ const EST_W = Dimensions.get('window').width - 40;
  * 所以一次选中只有"原来的那天"和"新的那天"两格真正重渲染。
  */
 const DayCell = memo(function DayCell({
-  cell, gy, gm, col, isSel, paint, dots, onPressDay,
+  cell, gy, gm, col, isSel, paint, dots, onPressDay, onLongPressDay,
 }: {
   cell: Cell;
   gy: number;
@@ -88,6 +90,8 @@ const DayCell = memo(function DayCell({
   /** 该日期的训练类型数组（去重后），用来在数字下方画小圆点 */
   dots: ScheduleType[];
   onPressDay: (cell: Cell, gy: number, gm: number) => void;
+  /** 长按：直接在这天新建训练 */
+  onLongPressDay: (cell: Cell, gy: number, gm: number) => void;
 }) {
   // 三种状态用三个静态样式对象，不再每次渲染新建 { color } 对象
   // 选中的数字仍走原来的"变白"逻辑（dayWait/dayOn 不动，液体滑块动画一行不碰）。
@@ -100,6 +104,8 @@ const DayCell = memo(function DayCell({
       style={styles.cell}
       activeOpacity={0.6}
       onPress={() => onPressDay(cell, gy, gm)}
+      onLongPress={() => onLongPressDay(cell, gy, gm)}
+      delayLongPress={400}
     >
       <View style={styles.dayBox}>
         <Text style={textStyle}>{cell.day}</Text>
@@ -146,7 +152,7 @@ const MonthGrid = memo(function MonthGrid({
   y, m, selDay, paint, withBlob,
   blobX, blobY, grow, blobOpacity,
   ghostX, ghostY, ghostScale, ghostOpacity,
-  dotsByDay, onPressDay,
+  dotsByDay, onPressDay, onLongPressDay,
 }: {
   y: number;
   m: number;
@@ -167,6 +173,7 @@ const MonthGrid = memo(function MonthGrid({
   /** 日期键 → 该日训练类型数组（去重），供日期格画圆点 */
   dotsByDay: Map<string, ScheduleType[]>;
   onPressDay: (cell: Cell, gy: number, gm: number) => void;
+  onLongPressDay: (cell: Cell, gy: number, gm: number) => void;
 }) {
   const cells = useMemo(() => buildMonthCells(y, m), [y, m]);
 
@@ -334,6 +341,7 @@ const MonthGrid = memo(function MonthGrid({
                 paint={paint}
                 dots={cell.type === 'cur' ? (dotsByDay.get(dateKey(y, m, cell.day)) ?? []) : []}
                 onPressDay={onPressDay}
+                onLongPressDay={onLongPressDay}
               />
             )
           ))}
@@ -346,9 +354,12 @@ const MonthGrid = memo(function MonthGrid({
 function CalendarScreen({
   onOpenProfile, onOpenAdd, onOpenDetail, onOpenPicker, onSelectDate,
   onOpenSettings, onOpenHistory, schedules, initialDate, onToggleComplete, avatar,
-  onGoTrain,
+  onGoTrain, onAddAt,
 }: Props) {
   const today = useMemo(() => new Date(), []);
+  // 长按新建：用 ref 中转，保持 pressDayLong 的 useCallback 引用稳定
+  const addAtRef = useRef(onAddAt);
+  addAtRef.current = onAddAt;
   // 首次进入用 initialDate（新日程保存后跳到那天），没传就用今天
   const initDate = useMemo(
     () => initialDate ?? { y: today.getFullYear(), m: today.getMonth(), d: today.getDate() },
@@ -701,6 +712,23 @@ function CalendarScreen({
     selectRef.current(p.getFullYear(), p.getMonth(), cell.day, true);
   }, []);
 
+  /**
+   * 长按日期：直接在这天新建训练。
+   * 用 addAtRef 中转 onAddAt，保持 useCallback 引用稳定（否则三张网格会跟着重渲染）。
+   * 跨月补位日期归到相邻月；同时选中那天，返回时日历停在这天。
+   */
+  const pressDayLong = useCallback((cell: Cell, gy: number, gm: number) => {
+    let y = gy;
+    let m = gm;
+    if (cell.type !== 'cur') {
+      const p = new Date(gy, gm - 1, 1);
+      y = p.getFullYear();
+      m = p.getMonth();
+    }
+    selectRef.current(y, m, cell.day, cell.type !== 'cur');
+    addAtRef.current?.({ y, m, d: cell.day });
+  }, []);
+
   /** 松手确认切月：先平滑滑到相邻页，再整棵重挂（月份 + 归零位移 + epoch 同批提交） */
   const commitPage = (dir: 1 | -1, from: number) => {
     const w = gridWRef.current || 300;
@@ -871,6 +899,7 @@ function CalendarScreen({
                 ghostOpacity={ghostOpacity}
                 dotsByDay={dotsByDay}
                 onPressDay={pressDay}
+                onLongPressDay={pressDayLong}
               />
             </View>
             <View style={{ width: gridW }}>
@@ -890,6 +919,7 @@ function CalendarScreen({
                 ghostOpacity={ghostOpacity}
                 dotsByDay={dotsByDay}
                 onPressDay={pressDay}
+                onLongPressDay={pressDayLong}
               />
             </View>
             <View style={{ width: gridW }}>
@@ -909,6 +939,7 @@ function CalendarScreen({
                 ghostOpacity={ghostOpacity}
                 dotsByDay={dotsByDay}
                 onPressDay={pressDay}
+                onLongPressDay={pressDayLong}
               />
             </View>
           </Animated.View>

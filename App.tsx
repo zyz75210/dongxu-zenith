@@ -552,6 +552,13 @@ export default function App() {
     setPage('add');
   }, []);
 
+  /** 长按月历某天：直接以那天为默认日期新建（不依赖 selDateRef 的渲染时序） */
+  const openAddAt = useCallback((d: { y: number; m: number; d: number }) => {
+    setEditingId(null);
+    setAddDate(d);
+    setPage('add');
+  }, []);
+
   /** 详情页点「编辑日程」：同一条日程，进添加页的「修改」分支 */
   const openEdit = useCallback((item: Schedule) => {
     setEditingId(item.id);
@@ -627,6 +634,7 @@ export default function App() {
             onOpenHistory={openHistoryFromMain}
             avatar={profile.avatar}
             onGoTrain={() => showToast('训练板块即将上线')}
+            onAddAt={openAddAt}
           />
         </TabPane>
 
