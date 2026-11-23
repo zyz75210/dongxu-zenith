@@ -667,6 +667,12 @@ function CalendarScreen({
       streak,
       weekDone: week.filter((s) => s.completed).length,
       weekTotal: week.length,
+      /**
+       * 火焰是否点亮：有连续打卡记录，或者这一周已经排了训练都算。
+       * 只看 streak 会有个别扭的情况——排了训练但一次没勾完成，streak 还是 0，
+       * 火焰灰着，用户会觉得「我明明安排了却像没动过」。
+       */
+      lit: streak > 0 || week.length > 0,
     };
   }, [schedules, sel]);
 
@@ -949,11 +955,14 @@ function CalendarScreen({
         <View style={styles.statsBar}>
           <View style={styles.statsLeft}>
             <View style={styles.statsFireRow}>
-              {/* 用 App 同款 Ionicons 扁平火焰替代 emoji：emoji 是全彩写实风，和扁平界面不是一套 */}
+              {/*
+                用 App 同款 Ionicons 扁平火焰替代 emoji（emoji 是全彩写实风，和扁平界面不是一套）。
+                点亮 = 实心 + 燃烧橙；未点亮 = 线性 + 灰，比只换颜色更容易看出「点没点起来」。
+              */}
               <Ionicons
-                name="flame"
+                name={statsBar.lit ? 'flame' : 'flame-outline'}
                 size={17}
-                color={statsBar.streak > 0 ? WEEKEND_COLOR : C.gray}
+                color={statsBar.lit ? C.fire : C.gray}
               />
               <View style={styles.statsStreakPair}>
                 <Text style={styles.statsStreakNum}>{statsBar.streak}</Text>
@@ -961,7 +970,7 @@ function CalendarScreen({
               </View>
             </View>
             <Text style={styles.statsStreakSub}>
-              {statsBar.weekTotal === 0 ? '该运动啦' : '保持住，别断签'}
+              {statsBar.weekTotal === 0 ? '该运动啦' : '保持住，加油哦'}
             </Text>
           </View>
 
