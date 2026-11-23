@@ -35,11 +35,16 @@ function ScheduleCapsule({ item, todayKey, onPress, onToggle }: Props) {
     <TouchableOpacity style={styles.capsule} activeOpacity={0.75} onPress={onPress}>
       <View style={[styles.dot, { backgroundColor: C.typeDot[item.type] }]} />
       <View style={styles.body}>
-        <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
+        <Text
+          style={[styles.title, item.completed && styles.titleDone]}
+          numberOfLines={1}
+        >
+          {item.title}
+        </Text>
         <Text style={styles.time}>{item.start} — {item.end}</Text>
       </View>
       <ScheduleStatusPill
-        label={item.tag || TYPE_NAME[item.type]}
+        label={item.completed ? '已完成' : (item.tag || TYPE_NAME[item.type])}
         state={state}
         onPress={onToggle}
       />
@@ -59,6 +64,8 @@ const styles = StyleSheet.create({
   dot: { width: 9, height: 9, borderRadius: 5, marginRight: 12 },
   body: { flex: 1 },
   title: { fontSize: 13, fontWeight: '500', color: C.text },
+  // 已完成：标题删除线 + 转灰（完成态三重信号之一）
+  titleDone: { textDecorationLine: 'line-through', color: C.gray },
   time: { fontSize: 11, color: C.gray, marginTop: 3 },
 });
 

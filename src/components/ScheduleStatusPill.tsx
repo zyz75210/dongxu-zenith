@@ -14,8 +14,11 @@ export type PillState = 'default' | 'done' | 'overdue';
 const CHECK_PATH = 'M2.8 6.2 L5.1 8.6 L9.4 3.2';
 const CROSS_PATH = 'M3.4 3.4 L8.6 8.6 M8.6 3.4 L3.4 8.6';
 
-const LOOKS: Record<PillState, { bg: string; fg: string; icon: 'check' | 'cross' | null }> = {
-  default: { bg: C.soft, fg: C.gray, icon: null },
+// default（未完成）态给一个「空心圆」视觉：让用户一眼看懂「这是一个待勾选的完成框，点一下就完成」
+const CIRCLE_PATH = 'M6 6 m -4 0 a 4 4 0 1 0 8 0 a 4 4 0 1 0 -8 0';
+
+const LOOKS: Record<PillState, { bg: string; fg: string; icon: 'check' | 'cross' | 'circle' }> = {
+  default: { bg: C.soft, fg: C.gray, icon: 'circle' },
   done: { bg: '#E9F0FE', fg: C.primary, icon: 'check' },
   overdue: { bg: '#FCEBEA', fg: C.typeDot.important, icon: 'cross' },
 };
@@ -61,14 +64,23 @@ export default function ScheduleStatusPill({ label, state, onPress }: Props) {
         >
           {look.icon && (
             <Svg width={11} height={11} viewBox="0 0 12 12" style={styles.icon}>
-              <Path
-                d={look.icon === 'check' ? CHECK_PATH : CROSS_PATH}
-                fill="none"
-                stroke={look.fg}
-                strokeWidth={1.9}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+              {look.icon === 'circle' ? (
+                <Path
+                  d={CIRCLE_PATH}
+                  fill="none"
+                  stroke={look.fg}
+                  strokeWidth={1.6}
+                />
+              ) : (
+                <Path
+                  d={look.icon === 'check' ? CHECK_PATH : CROSS_PATH}
+                  fill="none"
+                  stroke={look.fg}
+                  strokeWidth={1.9}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
             </Svg>
           )}
           <Text style={[styles.text, active && styles.textActive, { color: look.fg }]}>
