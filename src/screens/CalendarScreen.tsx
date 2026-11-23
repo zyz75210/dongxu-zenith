@@ -204,10 +204,10 @@ const MonthGrid = memo(function MonthGrid({
   }, [rows]);
 
   // 有训练的日期：在底灰条(34)下方多延伸一段(DOT_ZONE)，露出放圆点的空间。
-  // 按"连续有训练的日期"合并成段：相邻两天都有日程时凸出块直接连起来，中间不留空隙。
-  // 凸出块 top 上移 1px 与主灰条重叠，消除两者交界处的亚像素白缝。
+  // 按"连续有训练的日期"合并成段，中间无缝连成一条（顶部直角贴主灰条）。
+  // 记录每段的 start/end 列，渲染时据此决定左右端圆角（段端碰主灰条最左/最右时圆角连起）。
   const tallBands = useMemo(() => {
-    const out: { key: string; top: number; left: number; width: number }[] = [];
+    const out: { key: string; top: number; left: number; width: number; start: number; end: number }[] = [];
     rows.forEach((row, r) => {
       let s = -1;
       const push = (start: number, end: number) => {
@@ -216,6 +216,8 @@ const MonthGrid = memo(function MonthGrid({
           top: r * ROW_H + 6 + 34 - 1,
           left: (start / 7) * 100,
           width: ((end - start + 1) / 7) * 100,
+          start,
+          end,
         });
       };
       row.forEach((cell, i) => {
@@ -244,15 +246,22 @@ const MonthGrid = memo(function MonthGrid({
         />
       ))}
 
-      {tallBands.map((b) => (
-        <View
-          key={b.key}
-          style={[
-            styles.dayBandTall,
-            { top: b.top, left: `${b.left}%`, width: `${b.width}%` },
-          ]}
-        />
-      ))}
+      {tallBands.map((b) => {
+        // 段端是否碰到主灰条的最左/最右（col 0 / col 6）：碰到则端部圆角，与主灰条侧边连成一体
+        const roundLeft = b.start === 0;
+        const roundRight = b.end === 6;
+        return (
+          <View
+            key={b.key}
+            style={[
+              styles.dayBandTall,
+              { top: b.top, left: `${b.left}%`, width: `${b.width}%` },
+              roundLeft && styles.dayBandTallRoundL,
+              roundRight && styles.dayBandTallRoundR,
+            ]}
+          />
+        );
+      })}
 
       {withBlob && (
         <>
@@ -964,14 +973,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#F2F3F6', borderRadius: 10,
   },
   // 有训练的日期，在底灰条下方延伸的凸台（放圆点用）：
-  // 顶部左右角圆角，与主灰条左右端圆角对齐（最左/最右格凸出时侧边连成一体）；
-  // 顶部中间直边贴主灰条底部无缝；底部大圆角圆滑收尾。
+  // 默认（中间段）顶部直角无缝贴主灰条、底部圆角收尾
   // height 比 DOT_ZONE 多 1，补偿 top 上移的 1px，保证底部位置不变
   dayBandTall: {
     position: 'absolute', height: DOT_ZONE + 1,
     backgroundColor: '#F2F3F6',
-    borderTopLeftRadius: 10, borderTopRightRadius: 10,
     borderBottomLeftRadius: 10, borderBottomRightRadius: 10,
+  },
+  // 段左端碰到主灰条最左（周一）时：左上角圆角，与主灰条左端圆角连成一体
+  dayBandTallRoundL: {
+    borderTopLeftRadius: 10, borderBottomLeftRadius: 10,
+  },
+  // 段右端碰到主灰条最右（周日）时：右上角圆角，与主灰条右端圆角连成一体
+  dayBandTallRoundR: {
+    borderTopRightRadius: 10, borderBottomRightRadius: 10,
   },
   // 选中态的液体滑块：尺寸/圆角显式写死，避免安卓上圆角丢失变成方块
   // 位置完全由 translateX / translateY 决定（left/top 固定 0），方便用 native driver
