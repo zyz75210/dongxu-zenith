@@ -345,8 +345,26 @@ export default function App() {
    * 动画参数、时长、曲线全部复用，不另写一套。
    */
   const [frostTick, setFrostTick] = useState(0);
-  const bumpFrost = useCallback(() => setFrostTick((n) => n + 1), []);
+  /**
+   * 每个 tick 属于哪种转场：只有搜索这一档要「不压暗 + 时长再长一点」。
+   * 记的是完整的 navSig 字符串，所以只要换页 / 切 tab，它自然就对不上了，
+   * 下一次换页拿到的就是默认参数，不用额外清理。
+   */
+  const frostSig = useRef<string | null>(null);
+  const tickRef = useRef(0);
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  const bumpSearchFrost = useCallback(() => {
+    const next = tickRef.current + 1;
+    tickRef.current = next;
+    frostSig.current = `${pageRef.current}|${tabRef.current}|${next}`;
+    setFrostTick(next);
+  }, []);
   const navSig = `${page}|${tab}|${frostTick}`;
+  /** 这一次转场是不是搜索栏的进出 */
+  const isSearchFrost = frostSig.current === navSig;
   const prevPage = useRef(page);
   const pageChanged = prevPage.current !== page;
   prevPage.current = page;
@@ -716,7 +734,7 @@ export default function App() {
             onAddAt={openAddAt}
             onOpenReport={openReportFromMain}
             onAddQuick={openAddQuick}
-            onFrost={bumpFrost}
+            onFrost={bumpSearchFrost}
           />
         </TabPane>
 
@@ -935,11 +953,15 @@ export default function App() {
       <FrostOverlay
         targetRef={frostTarget}
         trigger={navSig}
-        fog={pageChanged ? MOTION.fog : MOTION.tabFog}
-        focus={pageChanged ? MOTION.enter : MOTION.tab}
+        fog={isSearchFrost ? MOTION.searchFog : (pageChanged ? MOTION.fog : MOTION.tabFog)}
+        focus={isSearchFrost ? MOTION.searchFocus : (pageChanged ? MOTION.enter : MOTION.tab)}
         // 压暗永远盖整屏（菜单栏也一起暗），但模糊只到菜单栏上沿；
         // 进出二级页面时菜单栏本来就被页面盖住，整屏一起糊也没关系
         clipBottom={pageChanged ? 0 : navH + bottomInset}
+        // 搜索栏进出：整屏亮度不变，只糊不暗，模糊强度也弱一点
+        dim={!isSearchFrost}
+        blur={isSearchFrost ? true : MOTION.useBlur}
+        intensity={isSearchFrost ? MOTION.searchBlur : undefined}
       />
 
       {/* 日期选择浮层：整屏覆盖，层级高于底部导航 */}

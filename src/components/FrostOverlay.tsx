@@ -19,10 +19,19 @@ type Props = {
    * 进出二级页面时传 0（那时菜单栏本来就被页面盖住了）。
    */
   clipBottom?: number;
+  /**
+   * 是否压一层冷灰（默认 true）。
+   * 关掉之后整屏亮度不变 —— 首页搜索栏的进出要这个效果：
+   * "屏幕忽然暗一下"会让人以为点错了，只留模糊就够了。
+   */
+  dim?: boolean;
+  /** 是否使用原生模糊。默认跟随全局 MOTION.useBlur，个别转场可以单独打开 */
+  blur?: boolean;
+  /** 模糊强度覆盖（默认 MOTION.blur） */
+  intensity?: number;
 };
 
-/** 雾最浓时容器的不透明度：不用模糊时用满值，靠 wash 自己的 alpha 控制浓淡 */
-const PEAK = MOTION.useBlur ? MOTION.peak : 1;
+/** 雾最浓时容器的不透明度：不做模糊时用满值，靠 wash 自己的 alpha 控制浓淡 */
 
 /**
  * 整屏转场层 —— 全 App 唯一的转场动画，分「起雾 → 对焦」两段。
@@ -50,8 +59,9 @@ const PEAK = MOTION.useBlur ? MOTION.peak : 1;
  */
 export default function FrostOverlay({
   targetRef, trigger, fog, focus, clipBottom = 0,
+  dim = true, blur = MOTION.useBlur, intensity,
 }: Props) {
-  /** 0 = 清晰 / PEAK = 最浓 */
+  /** 0 = 清晰 / 1（或 MOTION.peak）= 最浓 */
   const val = useRef(new Animated.Value(0)).current;
   /** 转场内容是否挂出来：只在转场这几百毫秒里挂，平时一个视图都不留 */
   const [live, setLive] = useState(false);
@@ -59,7 +69,7 @@ export default function FrostOverlay({
   const prev = useRef(trigger);
   const first = useRef(true);
   /** 本轮转场的参数在触发那一刻锁定；转场途中别的 state 变化不能改它 */
-  const cfg = useRef({ fog, focus, clipBottom });
+  const cfg = useRef({ fog, focus, clipBottom, dim, blur, intensity });
   const seq = useRef<Animated.CompositeAnimation | null>(null);
   const guard = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** 上一段转场是否还在播：还在播就从当前浓度接着走，跳回 0 会闪一下 */
@@ -71,7 +81,7 @@ export default function FrostOverlay({
    */
   if (trigger !== prev.current) {
     prev.current = trigger;
-    cfg.current = { fog, focus, clipBottom };
+    cfg.current = { fog, focus, clipBottom, dim, blur, intensity };
     if (!live) setLive(true);
   }
 
@@ -89,6 +99,8 @@ export default function FrostOverlay({
       return;
     }
     const { fog: fogMs, focus: focusMs } = cfg.current;
+    // 用真模糊的转场停在 peak（不然整屏糊成一片白）；纯压暗的转场靠 wash 自己的 alpha 控浓淡
+    const peak = cfg.current.blur ? MOTION.peak : 1;
 
     seq.current?.stop();
     if (guard.current) clearTimeout(guard.current);
@@ -98,7 +110,7 @@ export default function FrostOverlay({
 
     const run = Animated.sequence([
       Animated.timing(val, {
-        toValue: PEAK,
+        toValue: peak,
         duration: fogMs,
         easing: MOTION.easeFog,
         useNativeDriver: true,
@@ -147,21 +159,24 @@ export default function FrostOverlay({
           {/*
             压暗层：整屏覆盖，**包括底部菜单栏**。
             它只是一层纯色，压暗菜单栏反而让"整屏被盖住"这件事更成立。
+            dim=false 的转场（首页搜索）不挂这层：屏幕亮度全程不变。
           */}
-          <View style={[StyleSheet.absoluteFill, styles.wash]} />
+          {cfg.current.dim ? (
+            <View style={[StyleSheet.absoluteFill, styles.wash]} />
+          ) : null}
 
           {/*
             模糊层：只在内容区，底部停在菜单栏上沿（clipBottom）。
             菜单栏要一起压暗，但不要被糊 —— 糊住会让上面那排图标发毛。
           */}
-          {MOTION.useBlur ? (
+          {cfg.current.blur ? (
             <View style={[StyleSheet.absoluteFill, { bottom: cfg.current.clipBottom }]}>
               <BlurView
                 blurTarget={targetRef}
                 // 安卓 12+ 走 RenderEffect；低版本直接不糊（退化成半透明）
                 blurMethod="dimezisBlurViewSdk31Plus"
                 blurReductionFactor={MOTION.blurReductionFactor}
-                intensity={MOTION.blur}
+                intensity={cfg.current.intensity ?? MOTION.blur}
                 tint="default"
                 style={StyleSheet.absoluteFill}
               />
