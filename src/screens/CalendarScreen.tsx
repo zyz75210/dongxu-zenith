@@ -1016,7 +1016,7 @@ const styles = StyleSheet.create({
   weekText: { flex: 1, textAlign: 'center', fontSize: 12, color: C.gray },
   weekTextWeekend: { color: WEEKEND_COLOR, fontWeight: 'bold' },
 
-  gridWrap: { height: ROW_H * MAX_ROWS, overflow: 'hidden', marginBottom: 14 },
+  gridWrap: { height: ROW_H * MAX_ROWS, overflow: 'hidden', marginBottom: 8 },
   gridTrack: { flexDirection: 'row' },
   // 单个月份：长条层 + 滑块层都绝对定位在这一层上，日期格按流式排在最后（画在最上面）
   gridPage: { position: 'relative' },
