@@ -249,7 +249,7 @@ const MonthGrid = memo(function MonthGrid({
       {tallBands.map((b) => {
         // 段端是否碰到主灰条的最左/最右（col 0 / col 6）：
         // 主灰条左右端是"向内凹"的圆角(10)，凸出块直角顶在凹弧下会形成 ( 形凹坑。
-        // 用一个"向外凸"的圆(直径20)填进这个凹坑，让侧边视觉变平、连成一体。
+        // 用一个直角填充块把主灰条圆角凹坑填平，让侧边变成竖直平边（类似 I）。
         const roundLeft = b.start === 0;
         const roundRight = b.end === 6;
         return (
@@ -983,15 +983,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#F2F3F6',
     borderBottomLeftRadius: 10, borderBottomRightRadius: 10,
   },
-  // 端部填充圆：向外凸的圆(直径20)，填在主灰条左右端圆角凹坑里，让侧边视觉变平
+  // 端部填充块：直角块，填平主灰条左右端圆角凹坑，让侧边变成竖直平边（类似 I）
   edgeFillL: {
     position: 'absolute', left: 0, top: -9,
-    width: 20, height: 20, borderRadius: 10,
+    width: 10, height: 10,
     backgroundColor: '#F2F3F6',
   },
   edgeFillR: {
     position: 'absolute', right: 0, top: -9,
-    width: 20, height: 20, borderRadius: 10,
+    width: 10, height: 10,
     backgroundColor: '#F2F3F6',
   },
   // 选中态的液体滑块：尺寸/圆角显式写死，避免安卓上圆角丢失变成方块
