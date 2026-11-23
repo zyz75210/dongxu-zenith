@@ -917,25 +917,34 @@ function CalendarScreen({
               <Text style={styles.statsStreakNum}>{statsBar.streak}</Text>
               <Text style={styles.statsStreakLabel}>天</Text>
             </View>
-            <Text style={styles.statsStreakSub}>保持住，别断签</Text>
+            <Text style={styles.statsStreakSub}>
+              {statsBar.weekTotal === 0 ? '该运动啦' : '保持住，别断签'}
+            </Text>
           </View>
 
           <View style={styles.statsRight}>
-            <View style={styles.statsWeekRow}>
-              <Text style={styles.statsWeekText}>本周训练</Text>
-              <Text style={styles.statsWeekNum}>
-                {statsBar.weekDone}<Text style={styles.statsWeekTotal}>/{statsBar.weekTotal}</Text>
-              </Text>
-              <Text style={styles.statsWeekUnit}>次</Text>
-            </View>
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressFill,
-                  { width: `${statsBar.weekTotal ? Math.min(100, (statsBar.weekDone / statsBar.weekTotal) * 100) : 0}%` },
-                ]}
-              />
-            </View>
+            {statsBar.weekTotal === 0 ? (
+              // 本周还没排训练：不显示 0/0 和空进度条，改成引导文案
+              <Text style={styles.statsEmpty}>该运动啦 ›</Text>
+            ) : (
+              <>
+                <View style={styles.statsWeekRow}>
+                  <Text style={styles.statsWeekText}>本周训练</Text>
+                  <Text style={styles.statsWeekNum}>
+                    {statsBar.weekDone}<Text style={styles.statsWeekTotal}>/{statsBar.weekTotal}</Text>
+                  </Text>
+                  <Text style={styles.statsWeekUnit}>次</Text>
+                </View>
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: `${Math.min(100, (statsBar.weekDone / statsBar.weekTotal) * 100)}%` },
+                    ]}
+                  />
+                </View>
+              </>
+            )}
           </View>
         </View>
 
@@ -1100,6 +1109,8 @@ const styles = StyleSheet.create({
   statsStreakLabel: { fontSize: 12, color: C.gray, marginLeft: 2 },
   statsStreakSub: { fontSize: 11, color: C.gray, marginTop: 3 },
   statsRight: { alignItems: 'flex-end' },
+  // 本周没排训练时的引导文案
+  statsEmpty: { fontSize: 13, color: C.primary, fontWeight: '500' },
   statsWeekRow: { flexDirection: 'row', alignItems: 'baseline' },
   statsWeekText: { fontSize: 12, color: C.gray },
   statsWeekNum: { fontSize: 18, fontWeight: 'bold', color: '#16864A', marginLeft: 6 },
