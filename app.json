@@ -2,18 +2,18 @@
   "expo": {
     "name": "动序ZENITH",
     "slug": "CalendarApp",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "4",
+      "buildNumber": "5",
       "bundleIdentifier": "com.zenith.dongxu"
     },
     "android": {
       "package": "com.zenith.dongxu",
-      "versionCode": 4,
+      "versionCode": 5,
       "permissions": [
         "android.permission.SCHEDULE_EXACT_ALARM"
       ],
