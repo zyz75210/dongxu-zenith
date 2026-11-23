@@ -66,6 +66,12 @@ type Page =
 const FEATURE_TABS: TabKey[] = ['train', 'planet', 'content', 'growth'];
 
 /**
+ * 空状态「排一条」带进添加页的预设时长。
+ * 和空状态那句「先动三分钟？」必须一致，改一处就要改另一处。
+ */
+const QUICK_PRESET_MINUTES = 3;
+
+/**
  * 详情页的兜底数据：只在「已经进了详情页但条目刚好没了」时用（删除 / 退场动画那一瞬），
  * 用户看不到。页面本身不再预热 —— 现在首次打开才建视图树（见 SlideScreen 的 `seen`）。
  */
@@ -386,6 +392,8 @@ export default function App() {
 
   // 添加页的默认日期（点加号那一刻取一次）
   const [addDate, setAddDate] = useState(selDateRef.current);
+  /** 快捷新建的预设时长：只有空状态 CTA 会带值，其余新建 / 编辑都是 undefined */
+  const [addPresetMinutes, setAddPresetMinutes] = useState<number | undefined>(undefined);
   // 保存后让日历跳到那一天
   const [jumpDate, setJumpDate] = useState(selDateRef.current);
 
@@ -589,6 +597,18 @@ export default function App() {
   // 打开添加页：顺手把日历当前选中的日期带上（同批提交，不额外渲染）
   const openAdd = useCallback(() => {
     setEditingId(null);       // 从加号进来一律是"新建"，别继承上一次的编辑目标
+    setAddPresetMinutes(undefined);  // 普通新建走默认时长
+    setAddDate(selDateRef.current);
+    setPage('add');
+  }, []);
+
+  /**
+   * 空状态「排一条」：同样走新建，但时长预设成三分钟。
+   * 文案说「先动三分钟」，表单若是默认的 90 分钟，用户一打开就会放弃。
+   */
+  const openAddQuick = useCallback(() => {
+    setEditingId(null);
+    setAddPresetMinutes(QUICK_PRESET_MINUTES);
     setAddDate(selDateRef.current);
     setPage('add');
   }, []);
@@ -596,6 +616,7 @@ export default function App() {
   /** 长按月历某天：直接以那天为默认日期新建（不依赖 selDateRef 的渲染时序） */
   const openAddAt = useCallback((d: { y: number; m: number; d: number }) => {
     setEditingId(null);
+    setAddPresetMinutes(undefined);
     setAddDate(d);
     setPage('add');
   }, []);
@@ -603,6 +624,7 @@ export default function App() {
   /** 详情页点「编辑日程」：同一条日程，进添加页的「修改」分支 */
   const openEdit = useCallback((item: Schedule) => {
     setEditingId(item.id);
+    setAddPresetMinutes(undefined);  // 编辑走回填，不吃快捷新建的预设时长
     setPage('add');
   }, []);
 
@@ -685,6 +707,7 @@ export default function App() {
             onGoTrain={() => showToast('训练板块还在装修，先记着这条')}
             onAddAt={openAddAt}
             onOpenReport={openReportFromMain}
+            onAddQuick={openAddQuick}
           />
         </TabPane>
 
@@ -888,6 +911,7 @@ export default function App() {
               onClose={closeAdd}
               initialDate={addDate}
               editItem={editItem}
+              presetMinutes={editItem ? undefined : addPresetMinutes}
               onOpenDate={openPicker}
               onOpenTime={openTimePicker}
               onSave={addSchedule}

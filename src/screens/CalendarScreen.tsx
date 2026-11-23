@@ -41,6 +41,8 @@ type Props = {
   onGoTrain?: () => void;
   /** 点数据条右侧的本周进度：进数据报告页看完整统计 */
   onOpenReport?: () => void;
+  /** 空状态「排一条」：快捷新建，表单时长预设成三分钟的一小段 */
+  onAddQuick?: () => void;
   /** 长按月历某天：直接在这天新建训练 */
   onAddAt?: (d: { y: number; m: number; d: number }) => void;
 };
@@ -361,7 +363,7 @@ const MonthGrid = memo(function MonthGrid({
 function CalendarScreen({
   onOpenProfile, onOpenAdd, onOpenDetail, onOpenPicker, onSelectDate,
   onOpenSettings, onOpenHistory, schedules, initialDate, onToggleComplete, avatar,
-  onGoTrain, onAddAt, onOpenReport,
+  onGoTrain, onAddAt, onOpenReport, onAddQuick,
 }: Props) {
   const today = useMemo(() => new Date(), []);
   // 长按新建：用 ref 中转，保持 pressDayLong 的 useCallback 引用稳定
@@ -758,11 +760,28 @@ function CalendarScreen({
       };
     }
     // ③ 完全没记录 → 线性灰
-    // 副文案只做「轻推」，具体门槛（三分钟）交给下方空状态说，避免同一句话在一屏里说两遍
+    // 这一档要拆开看，同一句话对两种人是不同的意思：
+    // - 今天已经排了训练只是没勾：他知道自己要练什么，「还没动」就够了
+    // - 今天一条都没排：他连练什么都不知道，「还没动」只会让他卡住，
+    //   所以改成问句，指向下方那三个训练色块（选项就在眼前，不用想）
+    if (trainTotal > 0) {
+      return {
+        icon: 'flame-outline', color: C.gray,
+        text: '今天还没动',
+        sub: '练完来打个勾',
+      };
+    }
+    if (statsBar.weekTotal > 0) {
+      return {
+        icon: 'flame-outline', color: C.gray,
+        text: '今天空着',
+        sub: '想动就加一条',
+      };
+    }
     return {
       icon: 'flame-outline', color: C.gray,
-      text: '今天还没动',
-      sub: statsBar.weekTotal === 0 ? '动一下就行' : '练完来打个勾',
+      text: '今天练哪个',
+      sub: '挑一项就行',
     };
   }, [daySchedules, statsBar]);
 
@@ -1181,7 +1200,11 @@ function CalendarScreen({
               )}
             </View>
 
-            <TouchableOpacity style={styles.emptyCta} activeOpacity={0.85} onPress={onOpenAdd}>
+            <TouchableOpacity
+              style={styles.emptyCta}
+              activeOpacity={0.85}
+              onPress={onAddQuick ?? onOpenAdd}
+            >
               <Ionicons name="add" size={15} color={C.white} />
               <Text style={styles.emptyCtaText}>排一条</Text>
             </TouchableOpacity>

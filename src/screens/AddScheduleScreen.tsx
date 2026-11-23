@@ -15,6 +15,12 @@ type Props = {
   initialDate: { y: number; m: number; d: number };
   /** 编辑目标：非空时本页进入「修改」分支，表单从这条日程回填 */
   editItem?: Schedule | null;
+  /**
+   * 快捷新建的预设时长（分钟）。从首页空状态「先动三分钟」进来时传 3，
+   * 让表单默认就是一小段，而不是 90 分钟 —— 否则文案说三分钟、表单一开是一个半小时，
+   * 用户第一反应就是「算了」。普通新建 / 编辑不传，走原来的默认值。
+   */
+  presetMinutes?: number;
   onOpenDate: (
     init: { y: number; m: number; d: number },
     onPick: (y: number, m: number, d: number) => void,
@@ -105,7 +111,7 @@ const BLANK = {
 };
 
 function AddScheduleScreen({
-  visible = true, onClose, initialDate, editItem = null, onOpenDate, onOpenTime, onSave,
+  visible = true, onClose, initialDate, editItem = null, presetMinutes, onOpenDate, onOpenTime, onSave,
 }: Props) {
   const [title, setTitle] = useState(BLANK.title);
   const [type, setType] = useState<ScheduleType>(BLANK.type);
@@ -141,7 +147,13 @@ function AddScheduleScreen({
         setRemind(BLANK.remind);
         setDate(initialDate);
         setStart(BLANK.start);
-        setEnd(BLANK.end);
+        // 空状态快捷进来：结束时间 = 开始 + 预设时长，表单和「三分钟」的文案对得上
+        if (presetMinutes && presetMinutes > 0) {
+          const total = BLANK.start.h * 60 + BLANK.start.m + presetMinutes;
+          setEnd({ h: Math.floor(total / 60) % 24, m: total % 60 });
+        } else {
+          setEnd(BLANK.end);
+        }
       }
       // 页面常驻不卸载，上次滑到的位置会留着，重新打开时回到顶部
       scrollRef.current?.scrollTo({ y: 0, animated: false });
@@ -149,7 +161,7 @@ function AddScheduleScreen({
       setTitleFull(false);
     }
     prevVisible.current = visible;
-  }, [visible, initialDate, editItem]);
+  }, [visible, initialDate, editItem, presetMinutes]);
 
   const dateText = `${date.y}年${date.m + 1}月${date.d}日 星期${
     WEEK_DAYS[weekdayIndex(new Date(date.y, date.m, date.d))]
