@@ -675,11 +675,25 @@ function CalendarScreen({
     const week = schedules.filter((s) => s.date >= mk && s.date <= sk);
     // 训练和休息分开算：休息日不算「练了一次」，否则进度条会被休息撑虚
     const weekTrain = week.filter(isTraining);
+    /**
+     * 距离「最近一次动」过了几天：用来区分「第一次来」和「断了很久又回来」。
+     * 只看今天之前的记录（今天的安排还没完成，不算动过）。
+     * 没有任何历史 → -1，代表这是个全新的用户。
+     */
+    const pastDates = schedules
+      .filter((s) => s.date < todayKey)
+      .map((s) => s.date)
+      .sort();
+    const lastActive = pastDates.length > 0 ? pastDates[pastDates.length - 1] : null;
+    const daysSinceActive = lastActive
+      ? Math.round((new Date(todayKey).getTime() - new Date(lastActive).getTime()) / 86400000)
+      : -1;
     return {
       streak,
       weekDone: weekTrain.filter((s) => isFinished(s, todayKey)).length,
       weekTotal: weekTrain.length,
       weekRest: week.length - weekTrain.length,
+      daysSinceActive,
       /** 选中的周是不是「今天所在的那一周」：决定右边说「本周」还是「当周」 */
       isThisWeek: todayKey >= mk && todayKey <= sk,
       /** 选中日期相对今天的位置：左边那句短话的语义完全由它决定 */
@@ -778,6 +792,24 @@ function CalendarScreen({
         sub: '想动就加一条',
       };
     }
+    // 断了很久又回来的人：这句「好久不见」才是它该出现的地方
+    // （对第一次打开的人说「太久没见」是假的，第一次哪来的「久」）
+    if (statsBar.daysSinceActive >= 5) {
+      return {
+        icon: 'flame-outline', color: C.gray,
+        text: '好久不见',
+        sub: '先走两步？',
+      };
+    }
+    // 从来没动过：第一次来，别给压力，也别问「练哪个」——他还不知道能练什么，选项在下面
+    if (statsBar.daysSinceActive < 0) {
+      return {
+        icon: 'flame-outline', color: C.gray,
+        text: '第一次来？',
+        sub: '动一下就好',
+      };
+    }
+    // 有记录、本周也空着，只是今天还没动：他知道流程，直接问选哪个
     return {
       icon: 'flame-outline', color: C.gray,
       text: '今天练哪个',
@@ -1191,10 +1223,10 @@ function CalendarScreen({
             <View style={styles.emptyCopy}>
               <Text style={styles.emptyLead}>
                 {isToday
-                  ? '先动三分钟？'
+                  ? '慢走三分钟，也算练过'
                   : (statsBar.isPastDay ? '这天没留下记录' : '这天还是空的')}
               </Text>
-              {/* 专门拆掉「今天算了」的三个借口：要装备、要热身、要练很久 */}
+              {/* 专门拆掉「今天算了」的借口：要装备、要热身、要练很久 */}
               {isToday && (
                 <Text style={styles.emptySub}>不用装备，不用热身，想停就停</Text>
               )}
@@ -1206,7 +1238,7 @@ function CalendarScreen({
               onPress={onAddQuick ?? onOpenAdd}
             >
               <Ionicons name="add" size={15} color={C.white} />
-              <Text style={styles.emptyCtaText}>排一条</Text>
+              <Text style={styles.emptyCtaText}>{isToday ? '先动三分钟' : '排一条'}</Text>
             </TouchableOpacity>
           </View>
         )}
