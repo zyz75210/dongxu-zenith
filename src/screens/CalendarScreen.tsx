@@ -667,12 +667,8 @@ function CalendarScreen({
       streak,
       weekDone: week.filter((s) => s.completed).length,
       weekTotal: week.length,
-      /**
-       * 火焰是否点亮：有连续打卡记录，或者这一周已经排了训练都算。
-       * 只看 streak 会有个别扭的情况——排了训练但一次没勾完成，streak 还是 0，
-       * 火焰灰着，用户会觉得「我明明安排了却像没动过」。
-       */
-      lit: streak > 0 || week.length > 0,
+      /** 火焰是否点亮：只看「真的坚持了几天」。排了计划但一次没完成不算，否则这个数字就失真了 */
+      lit: streak > 0,
     };
   }, [schedules, sel]);
 
@@ -965,12 +961,23 @@ function CalendarScreen({
                 color={statsBar.lit ? C.fire : C.gray}
               />
               <View style={styles.statsStreakPair}>
-                <Text style={styles.statsStreakNum}>{statsBar.streak}</Text>
-                <Text style={styles.statsStreakLabel}>天</Text>
+                {statsBar.streak > 0 ? (
+                  <>
+                    {/* 数字前加「已坚持」：光看「12 天」不知道是什么的 12 天 */}
+                    <Text style={styles.statsStreakPrefix}>已坚持</Text>
+                    <Text style={styles.statsStreakNum}>{statsBar.streak}</Text>
+                    <Text style={styles.statsStreakLabel}>天</Text>
+                  </>
+                ) : (
+                  // 0 天不写「已坚持 0 天」，那是在打击人；换成一句邀请
+                  <Text style={styles.statsStreakStart}>今天开始</Text>
+                )}
               </View>
             </View>
             <Text style={styles.statsStreakSub}>
-              {statsBar.weekTotal === 0 ? '该运动啦' : '保持住，加油哦'}
+              {statsBar.streak > 0
+                ? '保持住，加油哦'
+                : (statsBar.weekTotal === 0 ? '该运动啦' : '练完就点亮')}
             </Text>
           </View>
 
@@ -1158,8 +1165,12 @@ const styles = StyleSheet.create({
   statsFireRow: { flexDirection: 'row', alignItems: 'center' },
   // 数字和「天」用 baseline 对齐，图标用外层 center 对齐数字块，不会一高一低
   statsStreakPair: { flexDirection: 'row', alignItems: 'baseline', marginLeft: 5 },
-  statsStreakNum: { fontSize: 22, fontWeight: 'bold', color: C.text },
+  // 「已坚持」作为前缀小字，和「天」同一层级；数字才是视觉重点
+  statsStreakPrefix: { fontSize: 12, color: C.gray },
+  statsStreakNum: { fontSize: 22, fontWeight: 'bold', color: C.text, marginLeft: 3 },
   statsStreakLabel: { fontSize: 12, color: C.gray, marginLeft: 2 },
+  // 0 天时显示的邀请文案，替代「已坚持 0 天」
+  statsStreakStart: { fontSize: 15, fontWeight: '600', color: C.text },
   statsStreakSub: { fontSize: 11, color: C.gray, marginTop: 3 },
   statsRight: { alignItems: 'flex-end' },
   // 本周没排训练时的引导文案
