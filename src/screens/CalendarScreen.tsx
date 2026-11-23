@@ -204,21 +204,32 @@ const MonthGrid = memo(function MonthGrid({
   }, [rows]);
 
   // 有训练的日期：在底灰条(34)下方多延伸一段(DOT_ZONE)，露出放圆点的空间。
-  // 逐格渲染（每个有训练的日期一个独立凸出块），每个块带圆角，视觉是平滑的圆角凸台。
+  // 按"连续有训练的日期"合并成段，左右两侧内收做平滑过渡，底部圆角，避免逐格断开突兀。
   const tallBands = useMemo(() => {
+    // 左右各内收的宽度（占一格的比例），让凸出块比主灰条窄一点，形成"托盘"过渡
+    const INSET = 0.5 / 7;
     const out: { key: string; top: number; left: number; width: number }[] = [];
     rows.forEach((row, r) => {
+      let s = -1;
+      const push = (start: number, end: number) => {
+        const span = end - start + 1;
+        out.push({
+          key: `t-${r}-${start}`,
+          top: r * ROW_H + 6 + 34,
+          left: (start / 7 + INSET) * 100,
+          width: (span / 7 - INSET * 2) * 100,
+        });
+      };
       row.forEach((cell, i) => {
         const has = cell !== null && cell.type === 'cur'
           && (dotsByDay.get(dateKey(y, m, cell.day))?.length ?? 0) > 0;
-        if (!has) return;
-        out.push({
-          key: `t-${r}-${i}`,
-          top: r * ROW_H + 6 + 34,
-          left: (i / 7) * 100,
-          width: (1 / 7) * 100,
-        });
+        if (has && s === -1) s = i;
+        if (!has && s !== -1) {
+          push(s, i - 1);
+          s = -1;
+        }
       });
+      if (s !== -1) push(s, 6);
     });
     return out;
   }, [rows, dotsByDay, y, m]);
@@ -954,10 +965,13 @@ const styles = StyleSheet.create({
     position: 'absolute', height: 34,
     backgroundColor: '#F2F3F6', borderRadius: 10,
   },
-  // 有训练的日期，在底灰条下方延伸的圆角凸台（放圆点用），四周倒角避免台阶突兀
+  // 有训练的日期，在底灰条下方延伸的凸台（放圆点用）：
+  // 左右两侧内收 + 底部圆角，形成从主灰条平滑过渡下来的"托盘"肩部
   dayBandTall: {
     position: 'absolute', height: DOT_ZONE,
-    backgroundColor: '#F2F3F6', borderRadius: 8,
+    backgroundColor: '#F2F3F6',
+    borderBottomLeftRadius: 8, borderBottomRightRadius: 8,
+    borderTopLeftRadius: 3, borderTopRightRadius: 3,
   },
   // 选中态的液体滑块：尺寸/圆角显式写死，避免安卓上圆角丢失变成方块
   // 位置完全由 translateX / translateY 决定（left/top 固定 0），方便用 native driver
