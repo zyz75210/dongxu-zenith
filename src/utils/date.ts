@@ -69,6 +69,40 @@ export function parseDateKey(key: string): { y: number; m: number; d: number } {
 }
 
 /**
+ * 解析搜索栏里手输的日期。
+ *
+ * 只认「年 月 日」三段：2025.11.25 / 2025-11-25 / 2025/11/25 / 20251125 都能吃。
+ * 提示语里给的是点号写法（手机上打点最顺手），但短横、斜杠、纯 8 位也照样认，
+ * 没必要为了统一格式让人重打一遍。
+ *
+ * 返回 null = 这不是一个真实存在的日期（2025.2.30、2025.13.1 都会被挡掉）。
+ * 注意 m 是 0-11，和 App 里到处用的 month 下标一致。
+ */
+export function parseDateInput(raw: string): { y: number; m: number; d: number } | null {
+  const s = raw.trim();
+  if (!s) return null;
+
+  let parts: number[];
+  if (/[./\-\s年月日]/.test(s)) {
+    // 有分隔符：按分隔符切（中英文年月日也认）
+    parts = s.split(/[./\-\s年月日]+/).filter(Boolean).map(Number);
+  } else if (/^\d{8}$/.test(s)) {
+    // 一串 8 位数字：按 YYYYMMDD 硬切
+    parts = [Number(s.slice(0, 4)), Number(s.slice(4, 6)), Number(s.slice(6, 8))];
+  } else {
+    return null;
+  }
+
+  if (parts.length !== 3 || parts.some((n) => !Number.isInteger(n))) return null;
+  const [y, m, d] = parts;
+  if (y < 1900 || y > 2999) return null;
+  if (m < 1 || m > 12) return null;
+  // 当月 0 号 = 上个月最后一天，正好是「这个月有几天」
+  if (d < 1 || d > new Date(y, m, 0).getDate()) return null;
+  return { y, m: m - 1, d };
+}
+
+/**
  * 连续完成天数：从今天往前数，连续每天至少有一条已完成日程。
  * 今天还没完成不算断掉（一天才刚开始，不该罚），从昨天接着往前数。
  */

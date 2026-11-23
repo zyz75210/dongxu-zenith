@@ -2,14 +2,14 @@ import React, {
   memo, useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
 import {
-  Animated, Dimensions, Easing, Image, PanResponder, ScrollView, StyleSheet,
-  Text, TouchableOpacity, View,
+  Animated, Dimensions, Easing, Image, Keyboard, PanResponder, ScrollView, StyleSheet,
+  Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { C, WEEK_DAYS } from '../theme';
 import { Schedule, ScheduleType } from '../data';
 import {
-  buildMonthCells, Cell, completedStreak, dateKey, dateKeyOf, isFinished, sameDay,
+  buildMonthCells, Cell, completedStreak, dateKey, dateKeyOf, isFinished, parseDateInput, sameDay,
   timeToMinutes, weekdayIndex,
 } from '../utils/date';
 import ScheduleCapsule, { TYPE_NAME } from '../components/ScheduleCapsule';
@@ -388,6 +388,13 @@ function CalendarScreen({
 
   const [view, setView] = useState({ y: initDate.y, m: initDate.m });
   const [sel, setSel] = useState(initDate);
+
+  /* ---------------- 按日期搜索（只用来跳到那一天，不是内容搜索） ---------------- */
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState('');
+  const [searchErr, setSearchErr] = useState<string | null>(null);
+  // 边打边判断：合法才亮「跳转」，不合法就让它保持灰（不用等用户按了才报错）
+  const parsedQuery = useMemo(() => parseDateInput(query), [query]);
 
   // 把选中的日期同步给上层（只在日期真正变化时触发，回调保持稳定不会循环）
   useEffect(() => {
@@ -844,6 +851,47 @@ function CalendarScreen({
     selectDate(y, m, today.getDate(), true);
   };
 
+  /* ---------------- 搜索：输入年月日，跳到那一天 ---------------- */
+
+  const openSearch = () => {
+    setQuery('');
+    setSearchErr(null);
+    setSearching(true);
+  };
+
+  const closeSearch = () => {
+    Keyboard.dismiss();
+    setSearching(false);
+    setQuery('');
+    setSearchErr(null);
+  };
+
+  /**
+   * 跳转。
+   * 走 selectDate(..., true)：月份变了就整块换页、同月就直接滑动，
+   * 和点日期、点「回到今天」是同一条路径，所以选中圆和列表的行为完全一致。
+   * 这里不做「找不到」的特殊页：那一天没安排，跳过去自然就是空态 + 「暂无训练」。
+   */
+  const runSearch = () => {
+    const p = parseDateInput(query);
+    if (!p) {
+      setSearchErr('没认出这个日期，格式是 2025.11.25');
+      return;
+    }
+    Keyboard.dismiss();
+    resetTx();
+    selectDate(p.y, p.m, p.d, true);
+    setSearching(false);
+    setQuery('');
+    setSearchErr(null);
+  };
+
+  // 输入框里的文字一变就清掉上一次的报错，别让红字挂在旁边骂人
+  const changeQuery = (t: string) => {
+    setQuery(t);
+    if (searchErr) setSearchErr(null);
+  };
+
   // 稳定的点击回调，配合 memo 避免三个网格无意义重渲染
   const pressDay = useCallback((cell: Cell, gy: number, gm: number) => {
     if (cell.type === 'cur') {
@@ -949,7 +997,64 @@ function CalendarScreen({
   return (
     <View style={styles.root}>
       <ScrollView style={styles.screen} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* 顶部：头像 + 月份（可点，弹出日期选择）+ 功能图标 */}
+        {/*
+          顶部有两种形态：
+          1. 默认：头像 + 月份（点开日期选择器）+ 搜索 / 设置
+          2. 搜索中：整条换成输入框。整条替换而不是另起一行，
+             是因为这页已经很满，多一行会把日历整体往下推。
+          搜索只做一件事：输入年月日，跳到那一天。不是内容搜索，没有结果列表。
+        */}
+        {searching ? (
+          <View style={styles.searchBlock}>
+            <View style={styles.searchRow}>
+              <View style={[styles.searchField, searchErr ? styles.searchFieldErr : null]}>
+                <Ionicons name="search" size={15} color={C.gray} />
+                <TextInput
+                  style={styles.searchInput}
+                  value={query}
+                  onChangeText={changeQuery}
+                  placeholder="例如 2025.11.25"
+                  placeholderTextColor={C.gray}
+                  keyboardType="numbers-and-punctuation"
+                  autoFocus
+                  autoCorrect={false}
+                  maxLength={10}
+                  returnKeyType="search"
+                  onSubmitEditing={runSearch}
+                  selectionColor={C.primary}
+                />
+                {query.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => changeQuery('')}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="close-circle" size={15} color={C.gray} />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* 输入合法才亮起来：灰色时是真的点不动，不是看着能点 */}
+              <TouchableOpacity
+                activeOpacity={0.6}
+                onPress={runSearch}
+                disabled={!parsedQuery}
+                hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+              >
+                <Text style={[styles.searchGo, !parsedQuery && styles.searchGoOff]}>跳转</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={closeSearch}
+                activeOpacity={0.6}
+                hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+              >
+                <Text style={styles.searchCancel}>取消</Text>
+              </TouchableOpacity>
+            </View>
+            {/* 报错只在认不出来时出现，平时不占高度 */}
+            {searchErr ? <Text style={styles.searchErr}>{searchErr}</Text> : null}
+          </View>
+        ) : (
         <View style={styles.header}>
           <TouchableOpacity onPress={onOpenProfile} activeOpacity={0.8}>
             <Image
@@ -973,7 +1078,7 @@ function CalendarScreen({
           </TouchableOpacity>
 
           <View style={styles.headerIcons}>
-            <TouchableOpacity style={styles.iconCircle} activeOpacity={0.7}>
+            <TouchableOpacity style={styles.iconCircle} activeOpacity={0.7} onPress={openSearch}>
               <Ionicons name="search-outline" size={18} color={C.text} />
             </TouchableOpacity>
             <TouchableOpacity
@@ -985,6 +1090,7 @@ function CalendarScreen({
             </TouchableOpacity>
           </View>
         </View>
+        )}
 
         {/* 月份切换 */}
         <View style={styles.monthSwitch}>
@@ -1288,6 +1394,23 @@ const styles = StyleSheet.create({
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: C.soft, alignItems: 'center', justifyContent: 'center',
   },
+
+  // 搜索态：整条替换头部，高度和 header 一致（36），进出搜索页面不会上下跳
+  searchBlock: { marginBottom: 18 },
+  searchRow: { flexDirection: 'row', alignItems: 'center' },
+  searchField: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6,
+    height: 36, borderRadius: 18, paddingHorizontal: 12,
+    backgroundColor: C.soft,
+  },
+  // 认不出日期时换一层极浅的暖底：比红边框轻，也不会闪一下
+  searchFieldErr: { backgroundColor: '#FFF4F2' },
+  // Android 的 TextInput 自带上下内边距，不清零会让文字在 36 高的框里偏下
+  searchInput: { flex: 1, fontSize: 14, color: C.text, paddingVertical: 0 },
+  searchGo: { fontSize: 13, fontWeight: '600', color: C.primary, marginLeft: 12 },
+  searchGoOff: { color: '#C4C9D2' },
+  searchCancel: { fontSize: 13, color: C.sub, marginLeft: 12 },
+  searchErr: { fontSize: 11, color: C.danger, marginTop: 6, marginLeft: 2 },
 
   monthSwitch: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
   pill: {
