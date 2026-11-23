@@ -50,6 +50,12 @@ type Props = {
   onAddQuick?: () => void;
   /** 长按月历某天：直接在这天新建训练 */
   onAddAt?: (d: { y: number; m: number; d: number }) => void;
+  /**
+   * 请上层播一次整屏转场（起雾 → 对焦）。
+   * 搜索栏的进出不是换页，但视觉上应该和换页是同一件事，
+   * 所以直接借上层那套 FrostOverlay，不在这里自己写一份动画。
+   */
+  onFrost?: () => void;
 };
 
 // 月历日期数字统一颜色：比黑色淡一点的深灰
@@ -374,7 +380,7 @@ const MonthGrid = memo(function MonthGrid({
 function CalendarScreen({
   onOpenProfile, onOpenAdd, onOpenDetail, onOpenPicker, onSelectDate,
   onOpenSettings, schedules, initialDate, onToggleComplete, avatar,
-  onGoTrain, onAddAt, onOpenReport, onAddQuick,
+  onGoTrain, onAddAt, onOpenReport, onAddQuick, onFrost,
 }: Props) {
   const today = useMemo(() => new Date(), []);
   // 长按新建：用 ref 中转，保持 pressDayLong 的 useCallback 引用稳定
@@ -857,6 +863,7 @@ function CalendarScreen({
     setQuery('');
     setSearchErr(null);
     setSearching(true);
+    onFrost?.();
   };
 
   const closeSearch = () => {
@@ -864,6 +871,7 @@ function CalendarScreen({
     setSearching(false);
     setQuery('');
     setSearchErr(null);
+    onFrost?.();
   };
 
   /**
@@ -884,6 +892,8 @@ function CalendarScreen({
     setSearching(false);
     setQuery('');
     setSearchErr(null);
+    // 搜索栏收起也是一次转场：和点「取消」同一个手感
+    onFrost?.();
   };
 
   // 输入框里的文字一变就清掉上一次的报错，别让红字挂在旁边骂人

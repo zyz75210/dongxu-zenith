@@ -338,7 +338,15 @@ export default function App() {
    * 进了 / 出了二级页面 = 一次完整转场；只切 tab = 短一档，而且要让开底部菜单栏。
    */
   const frostTarget = useRef<React.ComponentRef<typeof View> | null>(null);
-  const navSig = `${page}|${tab}`;
+  /**
+   * 页面内部的"局部转场"计数器。
+   * 首页搜索栏的进出不是换页，但也该和换页一样起一次雾，
+   * 所以让它往这个数字上加一 —— 拼进 navSig 后就会驱动 FrostOverlay 播一次同款转场，
+   * 动画参数、时长、曲线全部复用，不另写一套。
+   */
+  const [frostTick, setFrostTick] = useState(0);
+  const bumpFrost = useCallback(() => setFrostTick((n) => n + 1), []);
+  const navSig = `${page}|${tab}|${frostTick}`;
   const prevPage = useRef(page);
   const pageChanged = prevPage.current !== page;
   prevPage.current = page;
@@ -708,6 +716,7 @@ export default function App() {
             onAddAt={openAddAt}
             onOpenReport={openReportFromMain}
             onAddQuick={openAddQuick}
+            onFrost={bumpFrost}
           />
         </TabPane>
 
