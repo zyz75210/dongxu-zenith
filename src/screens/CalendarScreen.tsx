@@ -49,7 +49,7 @@ const WEEKEND_COLOR = '#FF9A45';
 const DIM_COLOR = '#C4C9D2';
 // 网格行高与行数（最多 6 行，固定高度避免切换月份时跳动）
 // 行高 = 日期数字区(46) + 下方圆点区(DOT_ZONE)，给训练圆点留出空间
-const ROW_H = 58;
+const ROW_H = 54;
 const MAX_ROWS = 6;
 /** 日期数字下方预留的圆点区高度（灰条有训练时才向下延伸到这一段） */
 const DOT_ZONE = 12;
@@ -208,19 +208,27 @@ const MonthGrid = memo(function MonthGrid({
 
   // 有训练的日期：在底灰条(34)下方多延伸一段(DOT_ZONE)，露出放圆点的空间。
   // 按"连续有训练的日期"合并成段，中间无缝连成一条（顶部直角贴主灰条）。
-  // 记录每段的 start/end 列，渲染时据此决定左右端圆角（段端碰主灰条最左/最右时圆角连起）。
+  // 段端若已经是主灰条的边界（左/右相邻格不是本月日期），需要填充圆角把凹坑填平。
   const tallBands = useMemo(() => {
-    const out: { key: string; top: number; left: number; width: number; start: number; end: number }[] = [];
+    const out: {
+      key: string; top: number; left: number; width: number;
+      roundLeft: boolean; roundRight: boolean;
+    }[] = [];
     rows.forEach((row, r) => {
       let s = -1;
       const push = (start: number, end: number) => {
+        // 左/右相邻格是否为本月日期：不是 → 这一端就是主灰条边界，需要填平圆角
+        const leftCell = start > 0 ? row[start - 1] : null;
+        const rightCell = end < 6 ? row[end + 1] : null;
+        const leftIsCur = leftCell !== null && leftCell.type === 'cur';
+        const rightIsCur = rightCell !== null && rightCell.type === 'cur';
         out.push({
           key: `t-${r}-${start}`,
           top: r * ROW_H + 6 + 34 - 1,
           left: (start / 7) * 100,
           width: ((end - start + 1) / 7) * 100,
-          start,
-          end,
+          roundLeft: !leftIsCur,
+          roundRight: !rightIsCur,
         });
       };
       row.forEach((cell, i) => {
@@ -249,25 +257,22 @@ const MonthGrid = memo(function MonthGrid({
         />
       ))}
 
-      {tallBands.map((b) => {
-        // 段端是否碰到主灰条的最左/最右（col 0 / col 6）：
+      {tallBands.map((b) => (
         // 主灰条左右端是"向内凹"的圆角(10)，凸出块直角顶在凹弧下会形成 ( 形凹坑。
-        // 用一个直角填充块把主灰条圆角凹坑填平，让侧边变成竖直平边（类似 I）。
-        const roundLeft = b.start === 0;
-        const roundRight = b.end === 6;
-        return (
-          <View
-            key={b.key}
-            style={[
-              styles.dayBandTall,
-              { top: b.top, left: `${b.left}%`, width: `${b.width}%` },
-            ]}
-          >
-            {roundLeft && <View style={styles.edgeFillL} />}
-            {roundRight && <View style={styles.edgeFillR} />}
-          </View>
-        );
-      })}
+        // 段端已是主灰条边界时，用直角填充块把凹坑填平，让侧边变成竖直平边（类似 I）。
+        // roundLeft / roundRight 已在计算时按"相邻格是否本月日期"判定，
+        // 所以月初从中间开始、月末在中间结束都能正确填平。
+        <View
+          key={b.key}
+          style={[
+            styles.dayBandTall,
+            { top: b.top, left: `${b.left}%`, width: `${b.width}%` },
+          ]}
+        >
+          {b.roundLeft && <View style={styles.edgeFillL} />}
+          {b.roundRight && <View style={styles.edgeFillR} />}
+        </View>
+      ))}
 
       {withBlob && (
         <>
