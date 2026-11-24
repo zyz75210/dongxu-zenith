@@ -42,3 +42,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# 本地构建产物（apk / aab），不要提交到仓库
+build/
