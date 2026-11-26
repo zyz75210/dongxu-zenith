@@ -47,7 +47,7 @@ const COPY: Record<GuideKind, Copy> = {
       + '提醒也排不进去 —— 设置页显示「已排程 0 条」就是这里的原因。',
     action: '系统不会重复弹授权框，只能在这一页里手动打开。',
     path: '设置 → 应用管理 → 本 App → 通知 → 允许通知',
-    hint: '在 Expo Go 里调试时选「Expo Go」；装上正式安装包后选「动序ZENITH」。',
+    hint: '在 Expo Go 里调试时选「Expo Go」；装上正式安装包后选「跳程 Zenith」。',
   },
   channel: {
     icon: 'volume-mute-outline',
@@ -68,7 +68,7 @@ const COPY: Record<GuideKind, Copy> = {
       + '日程提醒可能晚到，严重时整条不响 —— 这不是权限问题，权限开着也一样。',
     action: '把本 App 的省电策略改成「无限制」，并允许「自启动」，提醒才有保障。',
     path: '设置 → 应用管理 → 找到本 App → 省电策略 → 无限制',
-    hint: '现在是在 Expo Go 里调试，所以上面那一步要选「Expo Go」；装上正式安装包后选「动序ZENITH」。',
+    hint: '现在是在 Expo Go 里调试，所以上面那一步要选「Expo Go」；装上正式安装包后选「跳程 Zenith」。',
   },
 };
 
