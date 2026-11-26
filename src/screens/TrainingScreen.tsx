@@ -1,6 +1,7 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Animated, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View,
+  Animated, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, Text,
+  TextInput, TouchableOpacity, useWindowDimensions, View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -103,6 +104,14 @@ function TrainingScreen({ onEditDuration }: Props) {
   const [minutes, setMinutes] = useState(30);
   /** 定数跳的目标个数：和时长分开存，两种模式各记各的，切来切去不会丢 */
   const [count, setCount] = useState(500);
+  /**
+   * 个数输入小窗。
+   * 为什么不用 Modal：安卓每次 open 都要新建一个 Dialog 窗口，
+   * 点下去到窗口出现之间会有明显一顿（时长面板当初就是因此改成 App 托管的）。
+   * 这里只是一张居中卡，用绝对定位的覆盖层就够，不起原生窗口。
+   */
+  const [countEditing, setCountEditing] = useState(false);
+  const [countDraft, setCountDraft] = useState('500');
   // 默认「定时跳」：这一版中间显示的就是目标时长，两处必须对得上
   const [mode, setMode] = useState<string>('timer');
   const [sport, setSport] = useState<string>('rope');
@@ -149,6 +158,36 @@ function TrainingScreen({ onEditDuration }: Props) {
       if (next < MIN_COUNT || next > MAX_COUNT) return c;
       return next;
     });
+  };
+
+  const openCountEditor = () => {
+    setCountDraft(String(count));
+    setCountEditing(true);
+  };
+
+  /**
+   * 确认输入的个数：只收整数，越界按边界夹住**并说明**。
+   * 不静默改数字 —— 输了 5000 却变成 3000 还不吭声，比直接拒绝更让人困惑。
+   */
+  const applyCountDraft = () => {
+    const raw = countDraft.replace(/[^0-9]/g, '');
+    if (raw === '') {
+      showHint(`请输入 ${MIN_COUNT} ~ ${MAX_COUNT} 之间的个数`);
+      return;
+    }
+    const n = Number.parseInt(raw, 10);
+    const clamped = Math.min(MAX_COUNT, Math.max(MIN_COUNT, n));
+    setCount(clamped);
+    setCountEditing(false);
+    Keyboard.dismiss();
+    if (clamped !== n) {
+      showHint(`个数限 ${MIN_COUNT} ~ ${MAX_COUNT}，已按 ${clamped} 设定`);
+    }
+  };
+
+  const cancelCountEditor = () => {
+    setCountEditing(false);
+    Keyboard.dismiss();
   };
 
   const timeText = `${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`;
@@ -206,15 +245,18 @@ function TrainingScreen({ onEditDuration }: Props) {
                   </TouchableOpacity>
                 </View>
 
-                <Text
-                  style={[
-                    styles.time,
-                    { fontSize: timeSize, lineHeight: Math.round(timeSize * 1.16) },
-                  ]}
-                >
-                  {count}
-                </Text>
-                <Text style={styles.timeHint}>用两侧箭头调整（每次 {COUNT_STEP} 个）</Text>
+                {/* 点数字 = 直接敲一个数（箭头只适合微调，输 800 要按 6 次太笨） */}
+                <TouchableOpacity activeOpacity={0.85} onPress={openCountEditor}>
+                  <Text
+                    style={[
+                      styles.time,
+                      { fontSize: timeSize, lineHeight: Math.round(timeSize * 1.16) },
+                    ]}
+                  >
+                    {count}
+                  </Text>
+                  <Text style={styles.timeHint}>点击可直接输入，或用两侧箭头调</Text>
+                </TouchableOpacity>
               </>
             ) : (
               <>
@@ -369,6 +411,60 @@ function TrainingScreen({ onEditDuration }: Props) {
         </TouchableOpacity>
       </View>
 
+      {/*
+        个数输入小窗。
+        负边距是补 screen 自己的 padding（左右 20 / 上 8 / 下 6）；
+        不补的话遮罩会缩在内容区里，四周露出白条。
+      */}
+      {countEditing && (
+        <View style={styles.countMask}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={cancelCountEditor}
+          />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.countDialogWrap}
+            pointerEvents="box-none"
+          >
+            <View style={styles.countDialog}>
+              <Text style={styles.countDialogTitle}>目标个数</Text>
+              <TextInput
+                style={styles.countInput}
+                value={countDraft}
+                onChangeText={(t) => setCountDraft(t.replace(/[^0-9]/g, ''))}
+                keyboardType="number-pad"
+                maxLength={4}
+                autoFocus
+                selectTextOnFocus
+                returnKeyType="done"
+                onSubmitEditing={applyCountDraft}
+                placeholder="500"
+                placeholderTextColor="#C4C9D2"
+              />
+              <Text style={styles.countRange}>{MIN_COUNT} – {MAX_COUNT} 个</Text>
+              <View style={styles.countBtnRow}>
+                <TouchableOpacity
+                  style={styles.countBtn}
+                  activeOpacity={0.8}
+                  onPress={cancelCountEditor}
+                >
+                  <Text style={styles.countBtnText}>取消</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.countBtn, styles.countBtnMain]}
+                  activeOpacity={0.85}
+                  onPress={applyCountDraft}
+                >
+                  <Text style={[styles.countBtnText, styles.countBtnMainText]}>确定</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      )}
+
       {hint !== null && (
         <Animated.View style={[styles.hintWrap, { opacity: hintOpacity }]} pointerEvents="none">
           <View style={styles.hintPill}>
@@ -494,6 +590,41 @@ const styles = StyleSheet.create({
   },
   goCompact: { width: 82, height: 82, borderRadius: 41 },
   goText: { fontSize: 26, fontWeight: '700', color: C.white, letterSpacing: 1.5 },
+
+  /** 个数输入小窗：遮罩铺满训练页（负边距抵消 screen 的 padding） */
+  countMask: {
+    position: 'absolute',
+    left: -20, right: -20, top: -8, bottom: -6,
+    backgroundColor: 'rgba(20,24,36,0.35)',
+    zIndex: 40,
+  },
+  countDialogWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  countDialog: {
+    width: 268,
+    backgroundColor: C.white,
+    borderRadius: 18,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 16,
+  },
+  countDialogTitle: { fontSize: 14, fontWeight: '600', color: C.text, textAlign: 'center' },
+  countInput: {
+    marginTop: 14,
+    fontSize: 34, fontWeight: '700', color: C.text, textAlign: 'center',
+    paddingVertical: 6,
+    borderBottomWidth: 1, borderBottomColor: C.line,
+    fontVariant: ['tabular-nums'],
+  },
+  countRange: { fontSize: 11, color: C.sub, textAlign: 'center', marginTop: 8 },
+  countBtnRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  countBtn: {
+    flex: 1, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.soft,
+  },
+  countBtnMain: { backgroundColor: C.primary },
+  countBtnText: { fontSize: 13, color: C.text },
+  countBtnMainText: { color: C.white, fontWeight: '600' },
 
   hintWrap: {
     position: 'absolute', left: 0, right: 0, bottom: 6,
