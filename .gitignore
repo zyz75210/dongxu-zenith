@@ -45,3 +45,6 @@ yarn-error.*
 
 # 本地构建产物（apk / aab），不要提交到仓库
 build/
+
+# 本地扫码页（Expo 连接二维码，随 IP 变化重生成）
+.qr*
