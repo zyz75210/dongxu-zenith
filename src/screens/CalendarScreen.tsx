@@ -763,7 +763,7 @@ function CalendarScreen({
     // 未来：还没发生，只陈述排了几条，不做任何评价
     if (statsBar.isFutureDay) {
       return total > 0
-        ? { icon: 'calendar-outline', color: C.primary, text: `已安排 ${total} 条`, sub: '到时候见' }
+        ? { icon: 'calendar-outline', color: C.primary, text: `已安排 ${total} 条`, sub: '到那天再说' }
         : { icon: 'calendar-outline', color: C.gray, text: '还没安排' };
     }
 
@@ -776,17 +776,17 @@ function CalendarScreen({
       // 那天只排了休息：这是计划内的恢复日，不能按「训练完成率」去算
       if (trainTotal === 0) {
         return doneCount === total
-          ? { icon: 'moon', color: C.typeDot.rest, text: '休息到位', sub: '歇够了才练得动' }
+          ? { icon: 'moon', color: C.typeDot.rest, text: '休息到位', sub: '这天本来就不用练' }
           // 「下次记得勾一下」是在指责用户，而休息日本来就不需要他操作，责任在产品
           : { icon: 'moon-outline', color: C.gray, text: '休息没打卡', sub: '忘勾了，不影响休息' };
       }
       if (trainDone === trainTotal) {
-        return { icon: 'checkmark-circle', color: C.done, text: '全部完成', sub: '这天没偷懒' };
+        return { icon: 'checkmark-circle', color: C.done, text: '全部完成', sub: '这天的都做完了' };
       }
       if (trainDone > 0) {
         return {
           icon: 'checkmark-circle-outline', color: C.halfUp,
-          text: `完成 ${trainDone}/${trainTotal}`, sub: '差一点就满分',
+          text: `完成 ${trainDone}/${trainTotal}`, sub: `还剩 ${trainTotal - trainDone} 条没勾`,
         };
       }
       return { icon: 'ellipse-outline', color: C.gray, text: '没完成', sub: '大概是忙忘了' };
@@ -1403,7 +1403,7 @@ function CalendarScreen({
             <View style={styles.emptyCopy}>
               <Text style={styles.emptyLead}>
                 {isToday
-                  ? '慢走三分钟，也算练过'
+                  ? '先走三分钟，不难吧'
                   : (statsBar.isPastDay ? '这天没留下记录' : '这天还是空的')}
               </Text>
               {/* 专门拆掉「今天算了」的借口：要装备、要热身、要练很久 */}

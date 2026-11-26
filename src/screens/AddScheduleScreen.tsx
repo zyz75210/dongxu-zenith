@@ -267,7 +267,7 @@ function AddScheduleScreen({
           <TouchableOpacity style={styles.circle} onPress={onClose} activeOpacity={0.7}>
             <Ionicons name="close-outline" size={18} color={C.text} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>{editItem ? '编辑日程' : '添加日程'}</Text>
+          <Text style={styles.headerTitle}>{editItem ? '编辑日程' : '新建训练计划'}</Text>
           <TouchableOpacity style={styles.circle} activeOpacity={0.7}>
             <Ionicons name="ellipsis-horizontal" size={18} color={C.text} />
           </TouchableOpacity>

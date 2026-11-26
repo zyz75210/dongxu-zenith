@@ -31,7 +31,7 @@ function ContentScreen({ stats, onOpenMap, onSoon }: Props) {
     >
       <View style={styles.header}>
         <Text style={styles.cap}>EXPLORE · 探索</Text>
-        <Text style={styles.title}>内容库</Text>
+        <Text style={styles.title}>知识库</Text>
         <Text style={styles.sub}>为你的每一次运动 Find 灵感</Text>
       </View>
 

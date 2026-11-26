@@ -11,7 +11,7 @@ export const TABS: { key: TabKey; label: string; icon: string }[] = [
   { key: 'calendar', label: '日历', icon: 'calendar-outline' },
   { key: 'train', label: '训练', icon: 'barbell-outline' },
   { key: 'planet', label: '星球', icon: 'planet-outline' },
-  { key: 'content', label: '内容', icon: 'document-text-outline' },
+  { key: 'content', label: '知识', icon: 'document-text-outline' },
   { key: 'growth', label: '积累', icon: 'layers-outline' },
 ];
 
@@ -309,8 +309,11 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     flexShrink: 0,
   },
-  label: { fontSize: 11, color: C.gray, marginTop: 3 },
-  labelOn: { color: C.text, fontWeight: '500' },
+  // 字重整体加一档（2026-11）：11px 的中文在浅灰底上偏细，读起来要"凑近看"。
+  // 未选 500、选中 600，仍然保持"选中比未选重一点"的层级。
+  // 白层只画图标、不画文字，所以加粗不会影响小球的裁剪白，动画一行没动。
+  label: { fontSize: 11, fontWeight: '500', color: C.gray, marginTop: 3 },
+  labelOn: { color: C.text, fontWeight: '600' },
 
   // 白色裁剪窗口：宽度严格等于小球直径，所以"球盖满 = 整块白"。
   // 垂直方向不裁（高度铺满导航条）：球是圆的，球外露出的白字落在白底上本来就看不见，
