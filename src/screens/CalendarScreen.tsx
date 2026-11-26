@@ -44,8 +44,8 @@ type Props = {
   avatar?: string;
   /** 点卡片「去训练」入口：本轮只弹提示 */
   onGoTrain?: () => void;
-  /** 点数据条右侧的本周进度：进数据报告页看完整统计 */
-  onOpenReport?: () => void;
+  /** 点数据条右侧的本月进度：进数据报告页看完整统计，并把选中的月份带过去 */
+  onOpenReport?: (ym?: { y: number; m: number }) => void;
   /** 空状态「排一条」：快捷新建，表单时长预设成三分钟的一小段 */
   onAddQuick?: () => void;
   /** 长按月历某天：直接在这天新建训练 */
@@ -72,7 +72,7 @@ const DIM_COLOR = '#C4C9D2';
 const BAND = '#F2F3F6';
 /**
  * 是不是训练类。休息不算训练，统计口径要分开算：
- * 用户安排了休息日不代表「这周练了」，否则「本周训练 X/Y」会被休息撑虚。
+ * 用户安排了休息日不代表「练了一次」，否则「本月训练 X/Y」会被休息撑虚。
  */
 const isTraining = (s: Schedule) => s.type !== 'rest';
 // 网格行高与行数（最多 6 行，固定高度避免切换月份时跳动）
@@ -685,20 +685,18 @@ function CalendarScreen({
     return map;
   }, [schedules]);
 
-  // 连续打卡天数 + 本周训练统计（数据条用），全部由真实日程即时算
-  // 「本周」跟随当前选中日期所在的周（周一~周日），翻到哪一周就统计哪一周
+  // 连续打卡天数 + 本月训练统计（数据条用），全部由真实日程即时算
+  // 「本月」跟随当前选中日期所在的月：翻到哪个月就统计哪个月。
+  // 为什么从「周」改成「月」：右边这行点了会进报告页，而报告页是按月算的，
+  // 首页写 3/7、报告页写 12/20，两个数字对不上，用户会以为数据错了。
   const statsBar = useMemo(() => {
     const done = schedules.filter((s) => isFinished(s, todayKey));
     const streak = completedStreak(done.map((s) => s.date));
-    const base = new Date(sel.y, sel.m, sel.d);
-    const wd = (base.getDay() + 6) % 7; // 0=周一 … 6=周日
-    const monday = new Date(sel.y, sel.m, sel.d - wd);
-    const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
-    const mk = dateKeyOf(monday);
-    const sk = dateKeyOf(sunday);
-    const week = schedules.filter((s) => s.date >= mk && s.date <= sk);
-    // 训练和休息分开算：休息日不算「练了一次」，否则进度条会被休息撑虚
-    const weekTrain = week.filter(isTraining);
+    // 月前缀用 dateKey 生成，省掉手写补零：'2026-11'
+    const monthPrefix = dateKey(sel.y, sel.m, 1).slice(0, 7);
+    const month = schedules.filter((s) => s.date.startsWith(monthPrefix));
+    // 训练和休息分开算：休息日不算「练了一次」，否则进度会被休息撑虚
+    const monthTrain = month.filter(isTraining);
     /**
      * 距离「最近一次动」过了几天：用来区分「第一次来」和「断了很久又回来」。
      * 只看今天之前的记录（今天的安排还没完成，不算动过）。
@@ -714,17 +712,17 @@ function CalendarScreen({
       : -1;
     return {
       streak,
-      weekDone: weekTrain.filter((s) => isFinished(s, todayKey)).length,
-      weekTotal: weekTrain.length,
-      weekRest: week.length - weekTrain.length,
+      monthDone: monthTrain.filter((s) => isFinished(s, todayKey)).length,
+      monthTotal: monthTrain.length,
+      monthRest: month.length - monthTrain.length,
       daysSinceActive,
-      /** 选中的周是不是「今天所在的那一周」：决定右边说「本周」还是「当周」 */
-      isThisWeek: todayKey >= mk && todayKey <= sk,
+      /** 选中的月是不是「今天所在的月」：决定右边说「本月」还是「当月」 */
+      isThisMonth: sel.y === today.getFullYear() && sel.m === today.getMonth(),
       /** 选中日期相对今天的位置：左边那句短话的语义完全由它决定 */
       isPastDay: dayKey < todayKey,
       isFutureDay: dayKey > todayKey,
     };
-  }, [schedules, sel, todayKey, dayKey]);
+  }, [schedules, sel, todayKey, dayKey, today]);
 
   /**
    * 有没有过日程记录：休息日也算（它同样是一条排过的安排，说明这个人来过），
@@ -1286,19 +1284,19 @@ function CalendarScreen({
                   style={styles.statsWeekCaret}
                 />
               </TouchableOpacity>
-            ) : statsBar.weekTotal === 0 ? (
-              // 这一周没有训练安排：先看有没有排休息（排了就不是「没安排」）
-              statsBar.weekRest > 0 ? (
+            ) : statsBar.monthTotal === 0 ? (
+              // 这个月没有训练安排：先看有没有排休息（排了就不是「没安排」）
+              statsBar.monthRest > 0 ? (
                 <Text style={styles.statsEmpty}>
-                  {`${statsBar.isThisWeek ? '本周' : '当周'}休息 ${statsBar.weekRest} 天`}
+                  {`${statsBar.isThisMonth ? '本月' : '当月'}休息 ${statsBar.monthRest} 天`}
                 </Text>
-              ) : statsBar.isThisWeek ? (
+              ) : statsBar.isThisMonth ? (
                 /*
-                  本周一条训练都没有。
-                  左边那句已经在说「这天没排」，这里不能再陈述一遍「这周也空」——
+                  本月一条训练都没有。
+                  左边那句已经在说「这天没排」，这里不能再陈述一遍「这个月也空」——
                   同一个意思说两遍，而且上一版写的「下滑开始安排运动吧」是句滑不动的指令
-                  （空周时内容常常不足一屏，ScrollView 根本不滚）。
-                  所以右边只给动作：点一下就以选中的那天为日期新建，和「本周 3/7 ›」同一副长相。
+                  （空月时内容常常不足一屏，ScrollView 根本不滚）。
+                  所以右边只给动作：点一下就以选中的那天为日期新建，和「本月 3/7 ›」同一副长相。
                 */
                 <TouchableOpacity
                   style={styles.statsWeekRow}
@@ -1316,27 +1314,28 @@ function CalendarScreen({
                 </TouchableOpacity>
               ) : (
                 <Text style={styles.statsEmpty}>
-                  {statsBar.isPastDay ? '那周是空的' : '还空着'}
+                  {statsBar.isPastDay ? '那月是空的' : '还空着'}
                 </Text>
               )
             ) : (
               /*
-                只留一行「本周 3/7 次 ›」，去掉那条 4px 进度条 ——
+                只留一行「本月 3/7 ›」，去掉那条 4px 进度条 ——
                 进度条比例要靠它自己算，读起来是第二道算术题；
                 而「3/7」本身既是数据，又是进分析页的入口。
+                点进去会带着这个月一起过去，报告页直接定位到同一个月，两个数字必然一致。
               */
               <TouchableOpacity
                 style={styles.statsWeekRow}
                 activeOpacity={0.6}
-                onPress={onOpenReport}
+                onPress={() => onOpenReport?.({ y: sel.y, m: sel.m })}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               >
-                {/* 选中历史周还说「本周训练」就是错的，按是否本周切换措辞 */}
+                {/* 选中历史月还说「本月」就是错的，按是否本月切换措辞 */}
                 <Text style={styles.statsWeekText}>
-                  {statsBar.isThisWeek ? '本周' : '当周'}
+                  {statsBar.isThisMonth ? '本月' : '当月'}
                 </Text>
                 <Text style={styles.statsWeekNum}>
-                  {statsBar.weekDone}<Text style={styles.statsWeekTotal}>/{statsBar.weekTotal}</Text>
+                  {statsBar.monthDone}<Text style={styles.statsWeekTotal}>/{statsBar.monthTotal}</Text>
                 </Text>
                 <Ionicons
                   name="chevron-forward"
@@ -1576,7 +1575,7 @@ const styles = StyleSheet.create({
   },
   emptyCtaText: { fontSize: 13, color: C.white, fontWeight: '500' },
 
-  // 数据条：连续打卡 + 本周训练进度
+  // 数据条：连续打卡 + 本月训练进度
   statsBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     backgroundColor: BAND, borderRadius: 14,
@@ -1594,11 +1593,11 @@ const styles = StyleSheet.create({
   statsStreakStart: { fontSize: 15, fontWeight: '600', color: C.text },
   statsStreakSub: { fontSize: 11, color: C.sub, marginTop: 3 },
   statsRight: { alignItems: 'flex-end' },
-  // 本周没排训练时的引导文案
+  // 本月没排训练时的引导文案
   statsEmpty: { fontSize: 13, color: C.primary, fontWeight: '500' },
   statsWeekRow: { flexDirection: 'row', alignItems: 'baseline' },
   statsWeekText: { fontSize: 12, color: C.sub },
-  // 和右侧「这周还空着」同一个主色蓝：同一块区域两种状态用同一套色，视觉连贯
+  // 和右侧空态文案同一个主色蓝：同一块区域两种状态用同一套色，视觉连贯
   statsWeekNum: { fontSize: 18, fontWeight: 'bold', color: C.primary, marginLeft: 6 },
   statsWeekTotal: { fontSize: 13, fontWeight: '600', color: C.sub },
   // 箭头告诉用户「这行字能点」，也是唯一说明它是入口的地方

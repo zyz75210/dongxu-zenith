@@ -345,6 +345,12 @@ export default function App() {
    * 两个入口都要能返回原处，否则从首页点进来、返回却被送到「我的」。
    */
   const reportFrom = useRef<Page>('profile');
+  /**
+   * 报告页要打开哪个月。
+   * 首页数据条写「本月 3/7」并带着月份进来 → 这里存那个月，报告页直接定位过去；
+   * 从「我的」等其它入口进来 → 留 null，报告页落到今天所在的月。
+   */
+  const reportYm = useRef<{ y: number; m: number } | null>(null);
 
   /**
    * 二级页面是否盖在主界面上：只用来决定主界面吃不吃触摸，不做视觉。
@@ -786,10 +792,13 @@ export default function App() {
   const openProfileEdit = useCallback(() => setPage('profileEdit'), []);
   /** 报告页两个入口：从「我的」进，返回回「我的」；从首页数据条进，返回回首页 */
   const openReport = useCallback(() => {
+    reportYm.current = null;
     reportFrom.current = 'profile';
     setPage('report');
   }, []);
-  const openReportFromMain = useCallback(() => {
+  const openReportFromMain = useCallback((ym?: { y: number; m: number }) => {
+    // 首页把「它刚才在看的那个月」交过来，报告页照这个月打开，两边数字必然一致
+    reportYm.current = ym ?? null;
     reportFrom.current = 'main';
     setPage('report');
   }, []);
@@ -985,6 +994,7 @@ export default function App() {
             <ReportScreen
               schedules={schedules}
               visible={page === 'report'}
+              initialYm={reportYm.current ?? undefined}
               onBack={goBack}
             />
           </SlideScreen>

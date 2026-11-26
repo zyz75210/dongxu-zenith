@@ -20,8 +20,13 @@ const CIRC = 2 * Math.PI * R;
 
 type Props = {
   schedules: Schedule[];
-  /** 每次进入都把月份重置到当前月：报告默认看"这个月" */
+  /** 每次进入都把月份重置到「该看的那个月」：报告默认看"这个月" */
   visible: boolean;
+  /**
+   * 从首页进来时带上首页选中的那个月。
+   * 首页数据条写「本月 3/7」，点进来必须也是这个月，否则两个数字对不上。
+   */
+  initialYm?: { y: number; m: number };
   onBack: () => void;
 };
 
@@ -32,15 +37,25 @@ type Props = {
  * 分母如果掺进空白日，完成率会常年是个位数，数字就没有参考价值了。
  * 所以这里的完成率 = 该月已完成的日程数 / 该月日程总数。
  */
-function ReportScreen({ schedules, visible, onBack }: Props) {
+function ReportScreen({ schedules, visible, initialYm, onBack }: Props) {
   const today = useMemo(() => new Date(), []);
   const [ym, setYm] = useState({ y: today.getFullYear(), m: today.getMonth() });
 
-  // 每次重新进入回到当前月：上次看到 3 月，这次进来还停在 3 月会让人误以为是本月
+  /**
+   * 每次重新进入，都把月份重置到「进来时该看的那个月」：
+   * 首页带月份过来就跟着首页，没带（比如从别处进）就落到今天所在的月。
+   *
+   * 依赖只写 y/m 两个数字，不写 initialYm 这个对象：
+   * 对象每次渲染都是新的引用，会让人在报告页里翻到 3 月后被悄悄弹回。
+   */
   useEffect(() => {
     if (!visible) return;
-    setYm({ y: today.getFullYear(), m: today.getMonth() });
-  }, [visible, today]);
+    setYm(
+      initialYm
+        ? { y: initialYm.y, m: initialYm.m }
+        : { y: today.getFullYear(), m: today.getMonth() },
+    );
+  }, [visible, today, initialYm?.y, initialYm?.m]);
 
   const monthKey = `${ym.y}-${pad2(ym.m + 1)}`;
 
