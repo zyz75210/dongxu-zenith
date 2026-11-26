@@ -92,9 +92,11 @@ type Props = {
    * 这些规则留在本页，浮层只管把滚轮上的时/分换算成分钟。
    */
   onEditDuration: (current: number, onPick: (total: number) => void) => void;
+  /** 点 GO：进全屏计数页（只有跳绳走到这里，跑步 / 骑行还是提示） */
+  onStartJump: () => void;
 };
 
-function TrainingScreen({ onEditDuration }: Props) {
+function TrainingScreen({ onEditDuration, onStartJump }: Props) {
   const { height } = useWindowDimensions();
   // 小屏（< 730dp）压一压字号与间距，保证整页在不需要滚动的前提下放得下
   const compact = height < 730;
@@ -395,7 +397,14 @@ function TrainingScreen({ onEditDuration }: Props) {
         <TouchableOpacity
           style={[styles.go, compact && styles.goCompact]}
           activeOpacity={0.9}
-          onPress={() => showHint('开始训练：倒计时与结果记录待接入')}
+          onPress={() => {
+            // 只有跳绳进了计数页；跑步 / 骑行还没做，照实说
+            if (!isRope) {
+              showHint('这个运动还在开发，敬请期待');
+              return;
+            }
+            onStartJump();
+          }}
         >
           <Text style={[styles.goText, compact && { fontSize: 22 }]}>GO</Text>
         </TouchableOpacity>

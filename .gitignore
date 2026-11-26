@@ -48,3 +48,7 @@ build/
 
 # 本地扫码页（Expo 连接二维码，随 IP 变化重生成）
 .qr*
+
+# 重建依赖时临时重命名的旧目录
+node_modules.bak/
+package-lock.bak.json

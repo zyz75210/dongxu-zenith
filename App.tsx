@@ -36,6 +36,7 @@ import TrainingScreen from './src/screens/TrainingScreen';
 import ContentScreen from './src/screens/ContentScreen';
 import GrowthScreen from './src/screens/GrowthScreen';
 import GradeMapScreen from './src/screens/GradeMapScreen';
+import CountScreen from './src/screens/CountScreen';
 import {
   loadGradeProgress, saveGradeProgress, stageStats,
 } from './src/content/gradeProgress';
@@ -60,7 +61,7 @@ const featureConfig: Record<string, {
 // 页面类型：主界面 / 添加 / 详情 / 我的 / 资料编辑 / 设置 / 历史日程 / 段位地图
 type Page =
   | 'main' | 'add' | 'detail' | 'profile' | 'profileEdit' | 'report' | 'settings'
-  | 'history' | 'grades';
+  | 'history' | 'grades' | 'jump';
 
 // 四个功能页的顺序（切 tab 时按需挂载、挂载后常驻）
 const FEATURE_TABS: TabKey[] = ['train', 'planet', 'content', 'growth'];
@@ -695,6 +696,12 @@ export default function App() {
   const durCallback = useRef<((total: number) => void) | null>(null);
 
   // 稳定引用：它被当成 prop 传给常驻的训练页
+  /**
+   * 训练页点 GO：进全屏计数页。
+   * 引用要稳定（TrainingScreen 是 memo 的），否则每输一个字训练页都跟着重渲染。
+   */
+  const startJump = useCallback(() => setPage('jump'), []);
+
   const openDurationPicker = useCallback((
     current: number,
     onPick: (total: number) => void,
@@ -873,7 +880,10 @@ export default function App() {
           <TabPane key={k} active={tab === k}>
             {k === 'train' ? (
               // 训练页整屏固定，不滚动：一进来就是训练面板本身
-              <TrainingScreen onEditDuration={openDurationPicker} />
+              <TrainingScreen
+                onEditDuration={openDurationPicker}
+                onStartJump={startJump}
+              />
             ) : k === 'content' ? (
               // 内容库：段位大卡 → 段位地图，底部留白给后续板块
               <ContentScreen
@@ -1075,6 +1085,21 @@ export default function App() {
               onOpenDate={openPicker}
               onOpenTime={openTimePicker}
               onSave={addSchedule}
+            />
+          </SlideScreen>
+
+          {/*
+            跳绳计数页：从训练页的 GO 进来，全屏相机 + 实时计数。
+            放在最后 = 层级最高，盖住底部导航（计数时不该还能点别的 tab）。
+          */}
+          <SlideScreen
+            visible={page === 'jump'}
+            topInset={topInset}
+            bottomInset={bottomInset}
+          >
+            <CountScreen
+              active={page === 'jump'}
+              onExit={goBack}
             />
           </SlideScreen>
       </BlurTargetView>
