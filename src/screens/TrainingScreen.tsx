@@ -41,10 +41,10 @@ const STEP = 5;
 /**
  * 定数跳的目标个数。
  * 步进 50 而不是 1：一个人不会想要「跳 502 个」，整十整百才是真实的报数方式。
- * 上限 3000 是因为再往上单组跳不完，没有训练意义。
+ * 上限 10000：给「一天跳一万个」这种高强度目标留出空间，再往上就不现实了。
  */
 const MIN_COUNT = 50;
-const MAX_COUNT = 3000;
+const MAX_COUNT = 10000;
 const COUNT_STEP = 50;
 
 const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
@@ -435,7 +435,7 @@ function TrainingScreen({ onEditDuration }: Props) {
                 value={countDraft}
                 onChangeText={(t) => setCountDraft(t.replace(/[^0-9]/g, ''))}
                 keyboardType="number-pad"
-                maxLength={4}
+                maxLength={5}
                 autoFocus
                 selectTextOnFocus
                 returnKeyType="done"

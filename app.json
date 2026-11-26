@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "buildNumber": "6",
@@ -15,7 +16,9 @@
       "package": "com.zenith.dongxu",
       "versionCode": 6,
       "permissions": [
-        "android.permission.SCHEDULE_EXACT_ALARM"
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#F7F5F0",
@@ -30,7 +33,21 @@
     },
     "plugins": [
       "expo-status-bar",
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "跳程需要相机权限，用来识别你的跳绳动作并录制训练视频",
+          "enableMicrophonePermission": true,
+          "microphonePermissionText": "跳程需要麦克风权限，用来给训练视频录音"
+        }
+      ],
+      [
+        "react-native-mediapipe-posedetection",
+        {
+          "assetsPaths": ["./assets/models/"]
+        }
+      ]
     ],
     "extra": {
       "eas": {
