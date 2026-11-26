@@ -11,13 +11,16 @@ import { C } from '../theme';
 
 type MdiName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
-/** 跳绳的四种跳法：目前只切换选中态，各自的动作库 / 计数逻辑后续接 */
+/** 跳绳的四种跳法。定时跳 / 定数跳已可用；花样跳 / 自由跳待开发，点了只给提示 */
 const MODES = [
   { key: 'timer', label: '定时跳' },
   { key: 'count', label: '定数跳' },
   { key: 'trick', label: '花样跳' },
   { key: 'free', label: '自由跳' },
 ] as const;
+
+/** 已经能用的模式：用来判断切换模式时要不要拦一下 */
+const READY_MODES: string[] = ['timer', 'count'];
 
 /** 别的运动类型下，跳法胶囊先留四个空位，形状与跳绳那排完全一致（不让版式跳） */
 const GHOST_PILLS = [0, 1, 2, 3];
@@ -33,6 +36,15 @@ const SPORTS: { key: string; label: string; icon: MdiName }[] = [
 const MIN_DURATION = MIN_MINUTES;
 const MAX_DURATION = MAX_MINUTES;
 const STEP = 5;
+
+/**
+ * 定数跳的目标个数。
+ * 步进 50 而不是 1：一个人不会想要「跳 502 个」，整十整百才是真实的报数方式。
+ * 上限 3000 是因为再往上单组跳不完，没有训练意义。
+ */
+const MIN_COUNT = 50;
+const MAX_COUNT = 3000;
+const COUNT_STEP = 50;
 
 const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
 
@@ -89,6 +101,8 @@ function TrainingScreen({ onEditDuration }: Props) {
   const timeSize = compact ? 56 : Math.min(78, Math.round(height * 0.09));
 
   const [minutes, setMinutes] = useState(30);
+  /** 定数跳的目标个数：和时长分开存，两种模式各记各的，切来切去不会丢 */
+  const [count, setCount] = useState(500);
   // 默认「定时跳」：这一版中间显示的就是目标时长，两处必须对得上
   const [mode, setMode] = useState<string>('timer');
   const [sport, setSport] = useState<string>('rope');
@@ -128,6 +142,15 @@ function TrainingScreen({ onEditDuration }: Props) {
     });
   };
 
+  /** 个数用箭头调，到边界就停住（和时长一个行为，不弹解释） */
+  const changeCount = (delta: number) => {
+    setCount((c) => {
+      const next = c + delta;
+      if (next < MIN_COUNT || next > MAX_COUNT) return c;
+      return next;
+    });
+  };
+
   const timeText = `${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`;
 
   /** 滚轮确定的时长：按 5 ~ 720 分钟收敛。被夹住时说一句，避免"滚到别的数、结果变这样" */
@@ -160,41 +183,76 @@ function TrainingScreen({ onEditDuration }: Props) {
 
         <View style={styles.heroCenter}>
           {isRope ? (
-            <>
-              <View style={styles.targetRow}>
-                <TouchableOpacity
-                  style={styles.chevron}
-                  activeOpacity={0.7}
-                  onPress={() => changeMinutes(-STEP)}
-                >
-                  <Ionicons name="chevron-back" size={13} color={C.text} />
-                </TouchableOpacity>
-                <Text style={styles.targetLabel}>目标时长</Text>
-                <TouchableOpacity
-                  style={styles.chevron}
-                  activeOpacity={0.7}
-                  onPress={() => changeMinutes(STEP)}
-                >
-                  <Ionicons name="chevron-forward" size={13} color={C.text} />
-                </TouchableOpacity>
-              </View>
+            mode === 'count' ? (
+              /* 定数跳：同一张卡片换成「目标个数」。
+                 个数没有合适的滚轮（时分面板是时间单位），所以只用两侧箭头调；
+                 数字本身不做成可点的 —— 点了没东西可弹，比不能点更让人困惑。 */
+              <>
+                <View style={styles.targetRow}>
+                  <TouchableOpacity
+                    style={styles.chevron}
+                    activeOpacity={0.7}
+                    onPress={() => changeCount(-COUNT_STEP)}
+                  >
+                    <Ionicons name="chevron-back" size={13} color={C.text} />
+                  </TouchableOpacity>
+                  <Text style={styles.targetLabel}>目标个数</Text>
+                  <TouchableOpacity
+                    style={styles.chevron}
+                    activeOpacity={0.7}
+                    onPress={() => changeCount(COUNT_STEP)}
+                  >
+                    <Ionicons name="chevron-forward" size={13} color={C.text} />
+                  </TouchableOpacity>
+                </View>
 
-              {/* 点数字 = 打开滚轮，和日历里改年月日是同一个面板 */}
-              <TouchableOpacity
-                activeOpacity={0.85}
-                onPress={() => onEditDuration(minutes, applyDuration)}
-              >
                 <Text
                   style={[
                     styles.time,
                     { fontSize: timeSize, lineHeight: Math.round(timeSize * 1.16) },
                   ]}
                 >
-                  {timeText}
+                  {count}
                 </Text>
-                <Text style={styles.timeHint}>点击设定（时:分）</Text>
-              </TouchableOpacity>
-            </>
+                <Text style={styles.timeHint}>用两侧箭头调整（每次 {COUNT_STEP} 个）</Text>
+              </>
+            ) : (
+              <>
+                <View style={styles.targetRow}>
+                  <TouchableOpacity
+                    style={styles.chevron}
+                    activeOpacity={0.7}
+                    onPress={() => changeMinutes(-STEP)}
+                  >
+                    <Ionicons name="chevron-back" size={13} color={C.text} />
+                  </TouchableOpacity>
+                  <Text style={styles.targetLabel}>目标时长</Text>
+                  <TouchableOpacity
+                    style={styles.chevron}
+                    activeOpacity={0.7}
+                    onPress={() => changeMinutes(STEP)}
+                  >
+                    <Ionicons name="chevron-forward" size={13} color={C.text} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* 点数字 = 打开滚轮，和日历里改年月日是同一个面板 */}
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={() => onEditDuration(minutes, applyDuration)}
+                >
+                  <Text
+                    style={[
+                      styles.time,
+                      { fontSize: timeSize, lineHeight: Math.round(timeSize * 1.16) },
+                    ]}
+                  >
+                    {timeText}
+                  </Text>
+                  <Text style={styles.timeHint}>点击设定（时:分）</Text>
+                </TouchableOpacity>
+              </>
+            )
           ) : (
             // 跑步 / 骑行：中间的计时面板还没想清楚怎么记，先摆一句实话
             <Text style={styles.soonText}>功能还在开发</Text>
@@ -211,8 +269,13 @@ function TrainingScreen({ onEditDuration }: Props) {
                   style={[styles.modePill, on && styles.modePillOn]}
                   activeOpacity={0.85}
                   onPress={() => {
+                    // 花样跳 / 自由跳还没做：不切过去，只如实说一句。
+                    // 切过去却什么都不变，比点了没反应更让人以为坏了。
+                    if (!READY_MODES.includes(m.key)) {
+                      showHint(`${m.label}还在开发，敬请期待`);
+                      return;
+                    }
                     setMode(m.key);
-                    if (!on) showHint(`已切换到${m.label} · 动作库待接入`);
                   }}
                 >
                   <Text style={[styles.modeText, on && styles.modeTextOn]} numberOfLines={1}>
@@ -227,6 +290,20 @@ function TrainingScreen({ onEditDuration }: Props) {
             ))}
         </View>
       </View>
+
+      {/*
+        AI 分析提示条：只有定时跳 / 定数跳会出现（这两种才有 AI 评分）。
+        放在卡片外面、运动选择上面 —— 卡片是 flex:1 的弹性高度，
+        在卡片里塞一条会把大数字挤小，而且这条本来就不属于「目标设定」。
+      */}
+      {(isRope && (mode === 'timer' || mode === 'count')) && (
+        <View style={styles.aiBar}>
+          <Ionicons name="sparkles" size={13} color={C.ai} />
+          <Text style={styles.aiBarText} numberOfLines={1}>
+            本模式含 AI 动作分析，结束后可在回放中查看评分
+          </Text>
+        </View>
+      )}
 
       {/* 运动类型：竖排「更多运动」+ 三张卡 */}
       <View style={[styles.sportRow, compact && styles.sportRowCompact]}>
@@ -365,6 +442,19 @@ const styles = StyleSheet.create({
   modePillGhost: { backgroundColor: 'rgba(255,255,255,0.55)', borderColor: '#E7EDF8' },
   modeText: { fontSize: 11, color: '#5C6577' },
   modeTextOn: { color: C.white, fontWeight: 'bold' },
+
+  /**
+   * AI 提示条：浅紫底 + 一行说明。
+   * 用紫色而不是蓝色，是因为「这块是 AI 算出来的」要和「点这里能操作」区分开。
+   */
+  aiBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    marginTop: 10,
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: C.aiSoft,
+  },
+  aiBarText: { flex: 1, fontSize: 11, color: C.aiText, lineHeight: 15 },
 
   sportRow: { flexDirection: 'row', gap: 8, marginTop: 14, height: 86 },
   sportRowCompact: { height: 74, marginTop: 10 },
