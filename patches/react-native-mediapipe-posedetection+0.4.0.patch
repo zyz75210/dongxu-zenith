@@ -1,0 +1,66 @@
+diff --git a/node_modules/react-native-mediapipe-posedetection/android/src/main/java/com/mediapipeposedetection/posedetection/PoseDetectionFrameProcessorPlugin.kt b/node_modules/react-native-mediapipe-posedetection/android/src/main/java/com/mediapipeposedetection/posedetection/PoseDetectionFrameProcessorPlugin.kt
+index a46a142..2475ddd 100644
+--- a/node_modules/react-native-mediapipe-posedetection/android/src/main/java/com/mediapipeposedetection/posedetection/PoseDetectionFrameProcessorPlugin.kt
++++ b/node_modules/react-native-mediapipe-posedetection/android/src/main/java/com/mediapipeposedetection/posedetection/PoseDetectionFrameProcessorPlugin.kt
+@@ -19,14 +19,53 @@ class PoseDetectionFrameProcessorPlugin() : FrameProcessorPlugin() {
+     val mappedOrientation = imageOrientation(orientation)
+     mappedOrientation ?: return false
+ 
+-    val mpImage = MediaImageBuilder(frame.image).build()
+-    detector.detectLiveStream(mpImage, mappedOrientation)
+-    // val bitmap = imageToBitmap(frame.imageProxy)
+-    // if (bitmap != null) {
+-    //   val rotated = rotateBitmap(bitmap, orientationToDegrees(frame.orientation).toFloat())
+-    //   val mpImage = BitmapImageBuilder(rotated).build()
+-    //   detector.detectLiveStream(mpImage, frame.orientation)
+-    // }
++    // [zenith-patch] 三件事一起在这里解决：
++    //   1. MediaPipe 安卓端只吃 RGBA_8888 / RGB_565 / JPEG，YUV 直接抛异常；
++    //   2. 原库把旋转角写死成 0（PoseDetectorHelper.kt 里把真实 oriention 那行注释掉了），
++    //      竖屏时相机 buffer 其实是横的，人等于躺着进模型；
++    //   3. 靠 rotationDegrees 参数让 MediaPipe 自己转，实测方向不稳定（有时横有时竖）。
++    // 做法：先把帧拷成 Bitmap，按 CameraX 给的真实角度物理旋转正，再交给 MediaPipe，
++    // 旋转角固定传 0。这样进模型的画面永远是竖的，JS 侧可以放心地只用 y 当"上下"。
++    val image = frame.image
++    val width = image.width
++    val height = image.height
++    val plane = image.planes[0]
++    val bitmap = android.graphics.Bitmap.createBitmap(
++      width, height, android.graphics.Bitmap.Config.ARGB_8888
++    )
++    if (plane.rowStride == width * 4 && plane.pixelStride == 4) {
++      // 常见情况：行是紧凑的，直接整块拷
++      val buf = plane.buffer
++      buf.rewind()
++      bitmap.copyPixelsFromBuffer(buf)
++    } else {
++      // 行尾有 padding：逐行拷，跳过填充字节，否则画面会斜
++      val rowBytes = width * 4
++      val dst = java.nio.ByteBuffer.allocateDirect(rowBytes * height)
++      val row = ByteArray(rowBytes)
++      val src = plane.buffer
++      src.rewind()
++      for (y in 0 until height) {
++        val start = y * plane.rowStride
++        if (start + rowBytes > src.capacity()) break
++        src.position(start)
++        src.get(row, 0, rowBytes)
++        dst.put(row)
++      }
++      dst.rewind()
++      bitmap.copyPixelsFromBuffer(dst)
++    }
++
++    val rotation = frame.imageProxy.imageInfo.rotationDegrees
++    val upright = if (rotation == 0) {
++      bitmap
++    } else {
++      val matrix = android.graphics.Matrix().apply { postRotate(rotation.toFloat()) }
++      android.graphics.Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, false)
++    }
++
++    val mpImage = com.google.mediapipe.framework.image.BitmapImageBuilder(upright).build()
++    detector.detectAsync(mpImage, android.os.SystemClock.uptimeMillis(), 0)
+     return true
+   }
+ 

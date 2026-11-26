@@ -13,6 +13,12 @@ type Props = {
    */
   topInset?: number;
   bottomInset?: number;
+  /**
+   * 全屏铺底（相机预览这类页面用）。
+   * 为真时不补安全区内距、也不套 SafeAreaView，底色换成黑 ——
+   * 相机画面要顶到屏幕四边，任何一层内边距或白底都会露出边。
+   */
+  fullBleed?: boolean;
 };
 
 /**
@@ -33,7 +39,7 @@ type Props = {
  * 这样"可见"这件事在结构上不可能失败。
  */
 export default function SlideScreen({
-  visible, children, topInset = 0, bottomInset = 0,
+  visible, children, topInset = 0, bottomInset = 0, fullBleed = false,
 }: Props) {
   /** 正在退场：为真时即使 visible 已经变假，也要留在布局里把淡出播完 */
   const [exiting, setExiting] = useState(false);
@@ -124,11 +130,24 @@ export default function SlideScreen({
       pointerEvents={visible ? 'auto' : 'none'}
       accessibilityElementsHidden={!visible}
       importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
-      style={[StyleSheet.absoluteFill, styles.screen, { opacity: fade }, !mounted && styles.gone]}
+      style={[
+        StyleSheet.absoluteFill,
+        styles.screen,
+        fullBleed && styles.screenBlack,
+        { opacity: fade },
+        !mounted && styles.gone,
+      ]}
     >
-      <View style={[styles.fill, { paddingTop: topInset, paddingBottom: bottomInset }]}>
+      <View style={[
+        styles.fill,
+        // 全屏铺底的页面（相机预览）不能有任何内边距，否则四周会露出底色
+        { paddingTop: fullBleed ? 0 : topInset, paddingBottom: fullBleed ? 0 : bottomInset },
+      ]}
+      >
         {/* iOS：绝对定位同样吃不到外层 SafeAreaView 的内边距，这里再套一层兜住刘海 */}
-        <SafeAreaView style={styles.fill}>{seen.current ? children : null}</SafeAreaView>
+        {fullBleed ? (seen.current ? children : null) : (
+          <SafeAreaView style={styles.fill}>{seen.current ? children : null}</SafeAreaView>
+        )}
       </View>
     </Animated.View>
   );
@@ -136,6 +155,8 @@ export default function SlideScreen({
 
 const styles = StyleSheet.create({
   screen: { backgroundColor: C.bg },
+  /** 全屏相机页：底色用黑，取景时露出相机画面，相机没起来也不会闪白 */
+  screenBlack: { backgroundColor: '#000000' },
   // 不在场：从布局里整层拿掉（不绘制、不参与命中测试），视图树仍然留着
   gone: { display: 'none' },
   fill: { flex: 1, backgroundColor: C.bg },

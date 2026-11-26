@@ -33,6 +33,12 @@ import HistoryScreen from './src/screens/HistoryScreen';
 import ReportScreen from './src/screens/ReportScreen';
 import FeatureScreen from './src/screens/FeatureScreen';
 import TrainingScreen from './src/screens/TrainingScreen';
+import type { JumpStyle } from './src/jumpStyle';
+import { DEFAULT_VOICE, type VoiceMode } from './src/audio';
+import WorkoutListScreen from './src/screens/WorkoutListScreen';
+import {
+  loadWorkouts, saveWorkouts, type JumpMode, type Workout,
+} from './src/workout';
 import ContentScreen from './src/screens/ContentScreen';
 import GrowthScreen from './src/screens/GrowthScreen';
 import GradeMapScreen from './src/screens/GradeMapScreen';
@@ -61,7 +67,7 @@ const featureConfig: Record<string, {
 // 页面类型：主界面 / 添加 / 详情 / 我的 / 资料编辑 / 设置 / 历史日程 / 段位地图
 type Page =
   | 'main' | 'add' | 'detail' | 'profile' | 'profileEdit' | 'report' | 'settings'
-  | 'history' | 'grades' | 'jump';
+  | 'history' | 'grades' | 'jump' | 'workouts';
 
 // 四个功能页的顺序（切 tab 时按需挂载、挂载后常驻）
 const FEATURE_TABS: TabKey[] = ['train', 'planet', 'content', 'growth'];
@@ -408,6 +414,8 @@ export default function App() {
       if (p === 'report') return reportFrom.current;
       if (p === 'history') return historyFrom.current;
       if (p === 'detail') return detailFrom.current;
+      // 计数页退出：回它进来时那一页（训练页 → 主界面 / 详情页 → 详情）
+      if (p === 'jump') return jumpFromRef.current;
       // 添加页：编辑态退回详情，新建态回主界面（和右上角关闭走同一条路）
       if (p === 'add') return editingId ? 'detail' : 'main';
       // 设置页可能从日历首页的齿轮进，也可能从"我的"进，各回各家
@@ -692,7 +700,8 @@ export default function App() {
    * 和「确定后怎么应用」交出去。放在这里而不是训练页里用 Modal 包的，
    * 是因为安卓每次开 Modal 都要新建 Dialog 窗口，点开滚轮会顿一下。
    */
-  const [durPicker, setDurPicker] = useState({ open: false, minutes: 30 });
+  // 时长面板现在按「秒」记账（跳绳用分/秒，不是时分）
+  const [durPicker, setDurPicker] = useState({ open: false, seconds: 1800 });
   const durCallback = useRef<((total: number) => void) | null>(null);
 
   // 稳定引用：它被当成 prop 传给常驻的训练页
@@ -700,14 +709,156 @@ export default function App() {
    * 训练页点 GO：进全屏计数页。
    * 引用要稳定（TrainingScreen 是 memo 的），否则每输一个字训练页都跟着重渲染。
    */
-  const startJump = useCallback(() => setPage('jump'), []);
+  const [jump, setJump] = useState<{
+    style: JumpStyle; mode: JumpMode; target: number;
+    /** 从日程进来的话，记下那条日程 —— 保存成绩时要给它打勾 */
+    scheduleId?: string;
+    /** 播报模式：比赛语音 / 亲切语音 */
+    voice: VoiceMode;
+  }>({ style: 'together', mode: 'timer', target: 30, voice: DEFAULT_VOICE });
+  /**
+   * 进计数页之前停在哪个页面。
+   * 从训练页 GO 进来退出就回主界面；从日程详情「开始训练」进来，
+   * 退出应该回详情页 —— 让人跳完还能接着看这条计划。
+   */
+  const jumpFromRef = useRef<Page>('main');
 
+  const startJump = useCallback((p: {
+    style: JumpStyle; mode: JumpMode; target: number;
+    voice: VoiceMode;
+  }) => {
+    jumpFromRef.current = 'main';
+    // 训练页 GO 是独立训练，不挂任何日程 —— 这里必须显式不带 scheduleId，
+    // 否则上一次从日程进来的 id 会残留下来，把别的日程误标成完成
+    setJump({ ...p, scheduleId: undefined });
+    setPage('jump');
+  }, []);
+
+  /**
+   * 训练成绩：独立存一份，不挂在日程上。
+   * 训练页的 GO 是独立入口，跳完那一刻并不对应某条具体日程
+   * （一条重复日程有 365 个实例），所以成绩自带日期和名称自成一条。
+   */
+  const [workouts, setWorkouts] = useState<Workout[]>([]);
+
+  useEffect(() => {
+    void loadWorkouts().then(setWorkouts);
+  }, []);
+
+  /** 一次训练保存完：立刻跳成绩页，用户当场就能改名 */
+  const finishWorkout = useCallback((w: Workout) => {
+    setWorkouts((prev) => {
+      const next = [w, ...prev];
+      void saveWorkouts(next);
+      return next;
+    });
+
+    /*
+     * 从日程进来的训练：把那条日程标成已完成。
+     *
+     * 只做「设为完成」，不做「切换」——
+     * 用户刚练完，本来就已经完成过的再跳一次，不该被取消完成。
+     * 休息日没有完成状态，也跳过。
+     */
+    if (w.scheduleId) {
+      const target = w.scheduleId;
+      const cur = latest.current.schedules.find((s) => s.id === target);
+      if (cur && cur.type !== 'rest' && !cur.completed) {
+        completeTick();
+        setSchedules((list) => (
+          list.map((s) => (s.id === target ? { ...s, completed: true } : s))
+        ));
+      }
+    }
+
+    setPage('workouts');
+  }, []);
+
+  const renameWorkout = useCallback((id: string, name: string) => {
+    setWorkouts((prev) => {
+      const next = prev.map((w) => (w.id === id ? { ...w, name } : w));
+      void saveWorkouts(next);
+      return next;
+    });
+  }, []);
+
+  const deleteWorkout = useCallback((id: string) => {
+    setWorkouts((prev) => {
+      const next = prev.filter((w) => w.id !== id);
+      void saveWorkouts(next);
+      return next;
+    });
+  }, []);
+
+  const openWorkouts = useCallback(() => setPage('workouts'), []);
+
+  /**
+   * 今天有哪些跳绳计划 —— 训练页顶部那条胶囊带用。
+   *
+   * 只取跳绳：训练页的运动卡能切到跑步/骑行，但那两个还没有训练入口，
+   * 把它们的计划摆在这儿只会点不动。
+   * 已完成的也留着（带勾），让用户一眼知道"今天的活干完了"，
+   * 比突然消失更让人安心。
+   *
+   * 排序：**没完成的排前面**，完成的统一挪到后面。
+   * 训练页顶部这块位置很有限（一行放得下两个胶囊），
+   * 早上九点练完的那条要是还占着最左边，下午那个计划就得往右滑才看得见 ——
+   * 那就是"已经做完的事挡住了还没做的事"。
+   * 组内仍按开始时间排，所以未完成的那几条还是按计划顺序来的。
+   */
+  const todayPlans = useMemo(() => {
+    const key = dateKeyOf(new Date());
+    return schedules
+      .filter((s) => s.date === key && s.type === 'rope')
+      .sort((a, b) => {
+        const doneA = a.completed ? 1 : 0;
+        const doneB = b.completed ? 1 : 0;
+        if (doneA !== doneB) return doneA - doneB;
+        return a.start.localeCompare(b.start);
+      });
+  }, [schedules]);
+
+  /**
+   * 从一条日程直接进计数页。
+   *
+   * 计划里定好了「练什么」和「练多少」（定时跳存分钟、定数跳存个数），
+   * 这里直接换算成计数页要的目标值带过去 —— 用户点完就走，不用再选一遍。
+   *
+   * 只有跳绳 + 定时跳/定数跳能跳：
+   *   体能、跑步没有对应的计数页；花样跳、自由跳还没做。
+   *   这两种情况按钮本身已经是灰的、点不动，这里的 return 只是兜底。
+   */
+  const startJumpFromSchedule = useCallback((item: Schedule, from: Page = 'main') => {
+    if (item.type !== 'rope') return;
+    const mode = item.ropeMode ?? 'timer';
+    if (mode !== 'timer' && mode !== 'count') return;
+    jumpFromRef.current = from;
+    setJump({
+      // 计划里定好跳法了就用它的；老数据没有就按并脚跳算
+      style: item.jumpStyle ?? 'together',
+      // 带上这条日程的 id：跳完保存时给它打勾
+      scheduleId: item.id,
+      mode,
+      /*
+       * ropeTarget 存的就是计数页要的最终单位：
+       *   定时跳 = 秒（计划里选「1 分钟」存的是 60）
+       *   定数跳 = 个数
+       * 这里千万不能再乘 60 —— 之前乘过一次，1 分钟的计划进去变成 60 分钟。
+       * 兜底值取标准档（并脚跳 1 分钟 / 300 个），老数据没存目标时不会离谱。
+       */
+      target: item.ropeTarget ?? (mode === 'timer' ? 60 : 300),
+      voice: DEFAULT_VOICE,
+    });
+    setPage('jump');
+  }, []);
+
+  /** 打开时长面板：current 是秒，onPick 回传的也是秒 */
   const openDurationPicker = useCallback((
     current: number,
-    onPick: (total: number) => void,
+    onPick: (totalSeconds: number) => void,
   ) => {
     durCallback.current = onPick;
-    setDurPicker({ open: true, minutes: current });
+    setDurPicker({ open: true, seconds: current });
   }, []);
 
   const closeDurationPicker = () => setDurPicker((s) => ({ ...s, open: false }));
@@ -868,7 +1019,7 @@ export default function App() {
             onOpenSettings={openSettings}
             onOpenHistory={openHistoryFromMain}
             avatar={profile.avatar}
-            onGoTrain={() => showToast('训练板块还在装修，先记着这条')}
+            onGoTrain={startJumpFromSchedule}
             onAddAt={openAddAt}
             onOpenReport={openReportFromMain}
             onAddQuick={openAddQuick}
@@ -881,8 +1032,12 @@ export default function App() {
             {k === 'train' ? (
               // 训练页整屏固定，不滚动：一进来就是训练面板本身
               <TrainingScreen
+                active={tab === 'train'}
                 onEditDuration={openDurationPicker}
                 onStartJump={startJump}
+                onOpenWorkouts={openWorkouts}
+                todayPlans={todayPlans}
+                onOpenPlan={startJumpFromSchedule}
               />
             ) : k === 'content' ? (
               // 内容库：段位大卡 → 段位地图，底部留白给后续板块
@@ -1067,6 +1222,7 @@ export default function App() {
               onDelete={deleteSchedule}
               onDeleteSeries={deleteSeries}
               onToggleComplete={toggleComplete}
+              onStartTraining={(item) => startJumpFromSchedule(item, 'detail')}
             />
           </SlideScreen>
 
@@ -1083,6 +1239,7 @@ export default function App() {
               editItem={editItem}
               presetMinutes={editItem ? undefined : addPresetMinutes}
               onOpenDate={openPicker}
+              onEditDuration={openDurationPicker}
               onOpenTime={openTimePicker}
               onSave={addSchedule}
             />
@@ -1094,12 +1251,35 @@ export default function App() {
           */}
           <SlideScreen
             visible={page === 'jump'}
-            topInset={topInset}
-            bottomInset={bottomInset}
+            // 相机页必须全屏铺底：补安全区内距会让上下露出白边
+            fullBleed
           >
             <CountScreen
               active={page === 'jump'}
+              // 全屏之后安全区要自己补，把状态栏高度传进去
+              insetTop={topInset}
+              jumpStyle={jump.style}
+              mode={jump.mode}
+              target={jump.target}
+              scheduleId={jump.scheduleId}
+              voice={jump.voice}
               onExit={goBack}
+              onDone={finishWorkout}
+            />
+          </SlideScreen>
+
+          {/* 成绩页：训练页「成绩」和右上角三点里的「历史成绩」都进这里 */}
+          <SlideScreen
+            visible={page === 'workouts'}
+            topInset={topInset}
+            bottomInset={bottomInset}
+          >
+            <WorkoutListScreen
+              active={page === 'workouts'}
+              workouts={workouts}
+              onBack={goBack}
+              onRename={renameWorkout}
+              onDelete={deleteWorkout}
             />
           </SlideScreen>
       </BlurTargetView>
@@ -1153,7 +1333,7 @@ export default function App() {
       {/* 训练时长浮层：与上面两套同一套外壳，训练页只交来当前值和「确定后怎么应用」 */}
       <DurationPickerSheet
         visible={durPicker.open}
-        minutes={durPicker.minutes}
+        seconds={durPicker.seconds}
         onClose={closeDurationPicker}
         onConfirm={(total) => {
           const apply = durCallback.current;

@@ -42,8 +42,8 @@ type Props = {
   onOpenHistory: () => void;
   /** 头像 uri：改过资料后首页一起更新 */
   avatar?: string;
-  /** 点卡片「去训练」入口：本轮只弹提示 */
-  onGoTrain?: () => void;
+  /** 点卡片「去训练」入口：直接进计数页，带上这条计划定好的项目和目标 */
+  onGoTrain?: (item: Schedule) => void;
   /** 点数据条右侧的本月进度：进数据报告页看完整统计，并把选中的月份带过去 */
   onOpenReport?: (ym?: { y: number; m: number }) => void;
   /** 空状态「排一条」：快捷新建，表单时长预设成三分钟的一小段 */
@@ -1284,6 +1284,27 @@ function CalendarScreen({
                   style={styles.statsWeekCaret}
                 />
               </TouchableOpacity>
+            ) : statsBar.isFutureDay && dayCount === 0 ? (
+              /*
+                未来日期、当天还没安排：左边已经说了「还没安排」，
+                右边补一句能点的引导，把「怎么安排」说清楚 ——
+                点加号（或点这句）都能以这天为默认日期新建。
+                和「排一条」是同一副长相（文字 + ›），保持可点击约定一致。
+              */
+              <TouchableOpacity
+                style={styles.statsWeekRow}
+                activeOpacity={0.6}
+                onPress={onOpenAdd}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Text style={styles.statsEmpty} numberOfLines={1}>点加号安排</Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={12}
+                  color={C.gray}
+                  style={styles.statsWeekCaret}
+                />
+              </TouchableOpacity>
             ) : statsBar.monthTotal === 0 ? (
               // 这个月没有训练安排：先看有没有排休息（排了就不是「没安排」）
               statsBar.monthRest > 0 ? (
@@ -1425,10 +1446,14 @@ function CalendarScreen({
       </ScrollView>
 
       {/*
-        右下角加号只在「这天已经有日程」时出现。
-        空态卡片里本来就有自己的主按钮，再放一个蓝色圆钮，两个蓝色抢同一件事，只会让人犹豫。
+        右下角加号：只要不是「第一次来」就始终显示。
+        原来只在「这天已经有日程」时出现（dayCount > 0），
+        但那样切到一个空日期时加号会凭空消失，让人以为添加功能没了。
+        改成：首次进入（一条日程都没建过）时不显示 —— 那时空态卡里
+        已经有自己的主按钮，两个蓝钮会抢同一件事；
+        一旦建过哪怕一条日程（hasRecord），加号就常驻，无论当天有没有排。
       */}
-      {dayCount > 0 && (
+      {hasRecord && (
         <TouchableOpacity style={styles.fab} onPress={onOpenAdd} activeOpacity={0.85}>
           <Ionicons name="add" size={28} color={C.white} />
         </TouchableOpacity>

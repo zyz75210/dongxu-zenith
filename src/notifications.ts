@@ -53,7 +53,8 @@ const CHANNEL_FULL = {
   importance: Notifications.AndroidImportance.HIGH, // HIGH 才会横幅弹出 + 响铃
   vibrationPattern: [0, 250, 250, 250],
   lightColor: '#5B8DEF',
-  sound: 'default',
+  // 不设 sound：让系统用默认提示音。写 'default' 会被当成"自定义声音文件名"去找，
+  // 找不到就触发「Custom sound 'default' not found」警告（SDK 58 实测）。
 };
 
 /** 兜底配置：只留建渠道必需的两项（官方文档的最小示例就是这个形状） */
@@ -320,7 +321,7 @@ export async function syncReminders(
             ? `${item.start} - ${item.end} 开始，还有 ${REMIND_MINUTES} 分钟`
             : `现在开始 · ${item.start} - ${item.end}`,
           data: { app: MARK, scheduleId: item.id },
-          sound: 'default',
+          // 不设 sound = 用系统默认提示音（设 'default' 会触发找不到自定义声音的警告）
         },
         trigger: {
           // SDK 58 起 trigger 必须带 type，不能只传 Date
@@ -362,7 +363,6 @@ export async function sendTestNotification(seconds = 5): Promise<PermissionState
         title: '通知链路正常',
         body: `${seconds} 秒后收到的这条就是真实提醒，日程到点也走同一条路`,
         data: { app: MARK, test: true },
-        sound: 'default',
       },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.DATE,

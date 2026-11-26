@@ -1,14 +1,20 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Animated, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, Text,
-  TextInput, TouchableOpacity, useWindowDimensions, View,
+  Animated, Keyboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet,
+  Text, TextInput, TouchableOpacity, useWindowDimensions, View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Svg, { Line } from 'react-native-svg';
-import { MAX_MINUTES, MIN_MINUTES } from '../components/DurationPickerSheet';
+import { MAX_SECONDS, MIN_SECONDS } from '../components/DurationPickerSheet';
 import HeaderCircle from '../components/HeaderCircle';
 import { C } from '../theme';
+import { JUMP_STYLES, type JumpStyle } from '../jumpStyle';
+import {
+  durationWord, MAX_COUNT, MIN_COUNT, MODE_WORD, STANDARD, type JumpMode,
+} from '../workout';
+import { DEFAULT_VOICE, type VoiceMode } from '../audio';
+import type { Schedule } from '../data';
 
 type MdiName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
@@ -34,17 +40,21 @@ const SPORTS: { key: string; label: string; icon: MdiName }[] = [
 ];
 
 // 时长的上下限只有一处定义（DurationPickerSheet），这里只做别名，避免两处数字走散
-const MIN_DURATION = MIN_MINUTES;
-const MAX_DURATION = MAX_MINUTES;
-const STEP = 5;
+const MIN_DURATION = MIN_SECONDS;
+const MAX_DURATION = MAX_SECONDS;
+/**
+ * 上下箭头的步进：30 秒。
+ * 原来是 5 分钟 —— 那会儿时长是"时/分"刻度，跳绳根本用不上。
+ * 现在最常见的是 30 秒 / 1 分钟 / 3 分钟，30 秒一格按起来最顺手；
+ * 要精确到秒就直接点数字开滚轮。
+ */
+const STEP = 30;
 
 /**
  * 定数跳的目标个数。
  * 步进 50 而不是 1：一个人不会想要「跳 502 个」，整十整百才是真实的报数方式。
  * 上限 10000：给「一天跳一万个」这种高强度目标留出空间，再往上就不现实了。
  */
-const MIN_COUNT = 50;
-const MAX_COUNT = 10000;
 const COUNT_STEP = 50;
 
 const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
@@ -82,30 +92,60 @@ const Hatch = memo(function Hatch() {
 
 type Props = {
   /**
+   * 是否在前台（当前选中的 tab 是不是「训练」）。
+   *
+   * 用途：训练页是常驻挂载的（切 tab 只 display:none，不卸载），
+   * 所以 state 会一直留着。用这个标志在「离开又回来」时把目标重置成默认档；
+   * 页内的跳法切换（并脚↔换脚）不算离开，不重置。
+   */
+  active: boolean;
+  /**
    * 打开时长面板。
    *
    * 面板不在本页渲染 —— 它和日历的年月日、日程的起止时间是同一套全屏浮层，
    * 由 App 在最外层托管。之前这里用 Modal 包着，安卓每次打开都要新建一个
    * Dialog 窗口，点下去到面板出现之间会明显顿一下。
    *
-   * 传出去的第二个参数是「确定后怎么应用」：收敛到 5 分钟 ~ 12 小时、超界时提示，
-   * 这些规则留在本页，浮层只管把滚轮上的时/分换算成分钟。
+   * 传出去的第二个参数是「确定后怎么应用」：收敛到 1 秒 ~ 60 分钟、超界时提示，
+   * 这些规则留在本页，浮层只管把滚轮上的分/秒换算成总秒数。
    */
   onEditDuration: (current: number, onPick: (total: number) => void) => void;
-  /** 点 GO：进全屏计数页（只有跳绳走到这里，跑步 / 骑行还是提示） */
-  onStartJump: () => void;
+  /**
+   * 点 GO：进全屏计数页。
+   * 除了跳法，还要带上「训练项目」和「目标」—— 计数页靠它们决定
+   * 是倒数计时、还是数够了自动收尾。
+   */
+  onStartJump: (payload: {
+    style: JumpStyle; mode: JumpMode; target: number; voice: VoiceMode;
+  }) => void;
+  /** 打开成绩页（训练页底部「成绩」和右上角三点的「历史成绩」共用一个入口） */
+  onOpenWorkouts: () => void;
+  /** 今天还没完成的跳绳计划：顶上那条胶囊带 */
+  todayPlans: Schedule[];
+  /** 点计划胶囊：直接把这条计划的目标带进计数页 */
+  onOpenPlan: (plan: Schedule) => void;
 };
 
-function TrainingScreen({ onEditDuration, onStartJump }: Props) {
+function TrainingScreen({
+  active, onEditDuration, onStartJump, onOpenWorkouts, todayPlans, onOpenPlan,
+}: Props) {
   const { height } = useWindowDimensions();
   // 小屏（< 730dp）压一压字号与间距，保证整页在不需要滚动的前提下放得下
   const compact = height < 730;
   // 时间字号跟着屏高走：卡片是弹性高度，固定字号在大屏上会显得偏小
   const timeSize = compact ? 56 : Math.min(78, Math.round(height * 0.09));
 
-  const [minutes, setMinutes] = useState(30);
-  /** 定数跳的目标个数：和时长分开存，两种模式各记各的，切来切去不会丢 */
-  const [count, setCount] = useState(500);
+  /**
+   * 定时跳的目标时长（秒）。
+   * 默认值按跳法区分：并脚跳 60 秒、换脚跳 30 秒（见 STANDARD）。
+   * 初始就是并脚跳的默认值。
+   */
+  const [seconds, setSeconds] = useState(STANDARD.together.timerTarget);
+  /**
+   * 定数跳的目标个数。
+   * 默认值按跳法区分：并脚跳 300 个、换脚跳 200 个。
+   */
+  const [count, setCount] = useState(STANDARD.together.countTarget);
   /**
    * 个数输入小窗。
    * 为什么不用 Modal：安卓每次 open 都要新建一个 Dialog 窗口，
@@ -113,10 +153,40 @@ function TrainingScreen({ onEditDuration, onStartJump }: Props) {
    * 这里只是一张居中卡，用绝对定位的覆盖层就够，不起原生窗口。
    */
   const [countEditing, setCountEditing] = useState(false);
-  const [countDraft, setCountDraft] = useState('500');
+  /** 右上角三点的菜单 */
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [countDraft, setCountDraft] = useState(String(STANDARD.together.countTarget));
   // 默认「定时跳」：这一版中间显示的就是目标时长，两处必须对得上
   const [mode, setMode] = useState<string>('timer');
+  /** 跳法：并脚跳 / 换脚跳。计数页靠它决定用哪套判据 */
+  const [jumpStyle, setJumpStyle] = useState<JumpStyle>('together');
   const [sport, setSport] = useState<string>('rope');
+  /** 播报模式：比赛语音 / 亲切语音。默认比赛语音 */
+  const [voiceMode, setVoiceMode] = useState<VoiceMode>(DEFAULT_VOICE);
+
+  /**
+   * 离开训练页再回来时，把目标重置回「当前跳法的默认档」。
+   *
+   * 只在这两种情形重置：
+   *   1. 切到别的 tab（日历/星球/内容/积累）再切回训练 tab；
+   *   2. 首次进入训练 tab（prev 是 undefined，也归为"回来了"）。
+   * 页内的跳法切换（并脚↔换脚）不走这里 —— 那是 setJumpStyle 自己的逻辑，
+   * 会保留用户编辑过的目标，不做重置。
+   */
+  const prevActive = useRef<boolean | undefined>(undefined);
+  const jumpStyleRef = useRef<JumpStyle>(jumpStyle);
+  jumpStyleRef.current = jumpStyle;
+  useEffect(() => {
+    const was = prevActive.current;
+    prevActive.current = active;
+    // 只在「从非前台 → 前台」这个沿上重置；一开始就是 undefined → true 也算
+    if (active && was !== true) {
+      const std = STANDARD[jumpStyleRef.current];
+      setSeconds(std.timerTarget);
+      setCount(std.countTarget);
+      setCountDraft(String(std.countTarget));
+    }
+  }, [active]);
 
   /**
    * 轻提示：所有「还没接功能」的入口都走这里，点了有反馈、不装作能用。
@@ -145,10 +215,10 @@ function TrainingScreen({ onEditDuration, onStartJump }: Props) {
     if (hintTimer.current) clearTimeout(hintTimer.current);
   }, []);
 
-  const changeMinutes = (delta: number) => {
-    setMinutes((m) => {
-      const next = m + delta;
-      if (next < MIN_DURATION || next > MAX_DURATION) return m;
+  const changeSeconds = (delta: number) => {
+    setSeconds((v) => {
+      const next = v + delta;
+      if (next < MIN_DURATION || next > MAX_DURATION) return v;
       return next;
     });
   };
@@ -192,14 +262,15 @@ function TrainingScreen({ onEditDuration, onStartJump }: Props) {
     Keyboard.dismiss();
   };
 
-  const timeText = `${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`;
+  // 分:秒 —— 30 分钟显示成 30:00，1 分 30 秒显示成 01:30
+  const timeText = `${pad2(Math.floor(seconds / 60))}:${pad2(seconds % 60)}`;
 
-  /** 滚轮确定的时长：按 5 ~ 720 分钟收敛。被夹住时说一句，避免"滚到别的数、结果变这样" */
-  const applyDuration = (total: number) => {
-    const clamped = Math.min(MAX_DURATION, Math.max(MIN_DURATION, total));
-    setMinutes(clamped);
-    if (clamped !== total) {
-      showHint(`训练时长限 ${MIN_DURATION} 分钟 ~ ${MAX_DURATION / 60} 小时，已按边界设定`);
+  /** 滚轮确定的时长：按 1 秒 ~ 60 分钟收敛。被夹住时说一句，避免"滚到别的数、结果变这样" */
+  const applyDuration = (totalSeconds: number) => {
+    const clamped = Math.min(MAX_DURATION, Math.max(MIN_DURATION, totalSeconds));
+    setSeconds(clamped);
+    if (clamped !== totalSeconds) {
+      showHint('训练时长限 1 秒 ~ 60 分钟，已按边界设定');
     }
   };
 
@@ -208,15 +279,86 @@ function TrainingScreen({ onEditDuration, onStartJump }: Props) {
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.title}>训练</Text>
+        {/*
+          标题和小提示放在同一个 row 里、按「基线」对齐。
+          用法和外文排版一样：小字坐在大字的基线上，底部自然齐平。
+          之前把两者分开摆、靠容器高度硬凑，怎么调都会差一两像素。
+        */}
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>训练</Text>
+
+          {/*
+            只在今天真的有安排时出现 —— 没计划还喊"点胶囊"，
+            等于指着一个不存在的按钮。箭头指下方，省掉"哪个胶囊"的解释。
+          */}
+          {todayPlans.length > 0 && (
+            <Text style={styles.titleTip} numberOfLines={1}>↓ 别翻日历了，胶囊点一下</Text>
+          )}
+        </View>
+
         {/* 只开训练页自己的设置，不跳别的页面 */}
         <HeaderCircle
           icon="ellipsis-horizontal"
           label="更多"
           style={styles.headAct}
-          onPress={() => showHint('训练设置待接入')}
+          onPress={() => setMenuOpen(true)}
         />
       </View>
+
+      {/*
+        今日跳绳计划：有几个排几个，横向滑动。
+        放在 header 下面、大卡片上面 —— 这个位置是"今天要做什么"，
+        和下面"现在怎么练"是两件事，自上而下正好是「安排 → 执行」的读法。
+        只有跳绳才显示：跑步 / 骑行的计划不在这一版的训练范围里，
+        摆出来只会点不动。
+      */}
+      {isRope && todayPlans.length > 0 && (
+        <View style={styles.planRow}>
+          <Text style={styles.planLabel}>今日</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.planList}
+          >
+            {todayPlans.map((p) => {
+              const m = p.ropeMode ?? 'timer';
+              const ready = m === 'timer' || m === 'count';
+              const target = p.ropeTarget
+                ? (m === 'timer' ? durationWord(p.ropeTarget) : `${p.ropeTarget} 个`)
+                : '';
+              return (
+                <TouchableOpacity
+                  key={p.id}
+                  style={[
+                    styles.planPill,
+                    !ready && styles.planPillOff,
+                    p.completed && styles.planPillDone,
+                  ]}
+                  activeOpacity={ready ? 0.8 : 1}
+                  disabled={!ready}
+                  onPress={() => onOpenPlan(p)}
+                >
+                  <Text style={styles.planTime}>{p.start}</Text>
+                  {/*
+                    跳法放在时间后面、训练内容前面。
+                    顺序就是阅读顺序：几点 → 怎么跳 → 练什么、练多少。
+                    老数据没存 jumpStyle 时按并脚跳显示（和计数页的兜底一致）。
+                  */}
+                  <Text style={styles.planStyle}>
+                    {p.jumpStyle === 'alternate' ? '换脚跳' : '并脚跳'}
+                  </Text>
+                  <Text style={styles.planMode} numberOfLines={1}>
+                    {MODE_WORD[m]}{target ? ` ${target}` : ''}
+                  </Text>
+                  {p.completed && (
+                    <Ionicons name="checkmark" size={11} color={C.done} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
 
       {/* 目标时长卡片：整页不滚动，卡片吃满剩余高度 */}
       <View style={styles.hero}>
@@ -266,7 +408,7 @@ function TrainingScreen({ onEditDuration, onStartJump }: Props) {
                   <TouchableOpacity
                     style={styles.chevron}
                     activeOpacity={0.7}
-                    onPress={() => changeMinutes(-STEP)}
+                    onPress={() => changeSeconds(-STEP)}
                   >
                     <Ionicons name="chevron-back" size={13} color={C.text} />
                   </TouchableOpacity>
@@ -274,7 +416,7 @@ function TrainingScreen({ onEditDuration, onStartJump }: Props) {
                   <TouchableOpacity
                     style={styles.chevron}
                     activeOpacity={0.7}
-                    onPress={() => changeMinutes(STEP)}
+                    onPress={() => changeSeconds(STEP)}
                   >
                     <Ionicons name="chevron-forward" size={13} color={C.text} />
                   </TouchableOpacity>
@@ -283,7 +425,7 @@ function TrainingScreen({ onEditDuration, onStartJump }: Props) {
                 {/* 点数字 = 打开滚轮，和日历里改年月日是同一个面板 */}
                 <TouchableOpacity
                   activeOpacity={0.85}
-                  onPress={() => onEditDuration(minutes, applyDuration)}
+                  onPress={() => onEditDuration(seconds, applyDuration)}
                 >
                   <Text
                     style={[
@@ -293,7 +435,7 @@ function TrainingScreen({ onEditDuration, onStartJump }: Props) {
                   >
                     {timeText}
                   </Text>
-                  <Text style={styles.timeHint}>点击设定（时:分）</Text>
+                  <Text style={styles.timeHint}>点击设定（分:秒）</Text>
                 </TouchableOpacity>
               </>
             )
@@ -336,16 +478,56 @@ function TrainingScreen({ onEditDuration, onStartJump }: Props) {
       </View>
 
       {/*
-        AI 分析提示条：只有定时跳 / 定数跳会出现（这两种才有 AI 评分）。
+        跳法切换 + AI 标签，合成一行。
+        只有定时跳 / 定数跳会出现（这两种才进真正的计数页，也才有 AI 评分）。
         放在卡片外面、运动选择上面 —— 卡片是 flex:1 的弹性高度，
-        在卡片里塞一条会把大数字挤小，而且这条本来就不属于「目标设定」。
+        在卡片里塞一行会把大数字挤小。
       */}
       {(isRope && (mode === 'timer' || mode === 'count')) && (
-        <View style={styles.aiBar}>
-          <Ionicons name="sparkles" size={13} color={C.ai} />
-          <Text style={styles.aiBarText} numberOfLines={1}>
-            本模式含 AI 动作分析，结束后可在回放中查看评分
-          </Text>
+        <View style={styles.styleRow}>
+          <View style={styles.styleSegWrap}>
+            <Text style={styles.styleSegLabel}>跳法</Text>
+            <View style={styles.styleSeg}>
+              {JUMP_STYLES.map((m) => {
+                const on = m.key === jumpStyle;
+                return (
+                  <TouchableOpacity
+                    key={m.key}
+                    style={[styles.styleSegItem, on && styles.styleSegItemOn]}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      // 切跳法时，目标也跟着切到新跳法的默认档
+                      // （并脚跳 60 秒/300 个，换脚跳 30 秒/200 个）。
+                      setJumpStyle(m.key);
+                      const std = STANDARD[m.key];
+                      setSeconds(std.timerTarget);
+                      setCount(std.countTarget);
+                      setCountDraft(String(std.countTarget));
+                    }}
+                  >
+                    <Text style={[styles.styleSegText, on && styles.styleSegTextOn]}>
+                      {m.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* 示范视频入口：先留位，点开只给一句「待接入」，视频后续补 */}
+            <TouchableOpacity
+              style={styles.demoBtn}
+              activeOpacity={0.8}
+              onPress={() => showHint('示范视频待接入')}
+            >
+              <Ionicons name="play-circle-outline" size={14} color={C.sub} />
+              <Text style={styles.demoText} numberOfLines={1}>示范</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.aiChip}>
+            <Ionicons name="sparkles" size={12} color={C.ai} />
+            <Text style={styles.aiChipText} numberOfLines={1}>AI 动作分析</Text>
+          </View>
         </View>
       )}
 
@@ -369,7 +551,9 @@ function TrainingScreen({ onEditDuration, onStartJump }: Props) {
               activeOpacity={0.85}
               onPress={() => {
                 setSport(s.key);
-                if (!on) showHint(`已选择${s.label} · 数据记录待接入`);
+                // 跳绳已经能记成绩了，不用再弹「待接入」；
+                // 跑步 / 骑行还没做，选了只给一句实话
+                if (!on && s.key !== 'rope') showHint(`${s.label}还在开发，敬请期待`);
               }}
             >
               <MaterialCommunityIcons
@@ -383,15 +567,30 @@ function TrainingScreen({ onEditDuration, onStartJump }: Props) {
         })}
       </View>
 
-      {/* 底部：音乐 / GO / 成绩 */}
+      {/* 底部：播报切换 / GO / 成绩 */}
       <View style={[styles.actionRow, compact && styles.actionRowCompact]}>
+        {/*
+          播报模式切换：比赛语音（MP3 裁判口令）/ 亲切语音（TTS 3-2-1）。
+          点一下在两种之间切，图标和文案跟着变。
+          「音乐」的半屏弹窗后续再开发，这里先只做切换。
+        */}
         <TouchableOpacity
           style={styles.sidePill}
           activeOpacity={0.85}
-          onPress={() => showHint('训练音乐播放待接入')}
+          onPress={() => {
+            const next: VoiceMode = voiceMode === 'race' ? 'soft' : 'race';
+            setVoiceMode(next);
+            showHint(next === 'race' ? '已切换：比赛语音播报' : '已切换：亲切语音播报');
+          }}
         >
-          <MaterialCommunityIcons name="music-note" size={15} color={C.text} />
-          <Text style={styles.sideText}>音乐</Text>
+          <MaterialCommunityIcons
+            name={voiceMode === 'race' ? 'whistle-outline' : 'message-text-outline'}
+            size={15}
+            color={C.text}
+          />
+          <Text style={styles.sideText} numberOfLines={1}>
+            {voiceMode === 'race' ? '比赛' : '亲切'}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -403,17 +602,29 @@ function TrainingScreen({ onEditDuration, onStartJump }: Props) {
               showHint('这个运动还在开发，敬请期待');
               return;
             }
-            onStartJump();
+            // 花样跳 / 自由跳还没有计数逻辑，别让人进去了才发现跳不了
+            if (!READY_MODES.includes(mode)) {
+              const m = MODES.find((x) => x.key === mode);
+              showHint(`${m?.label ?? '这个模式'}还在开发，敬请期待`);
+              return;
+            }
+            onStartJump({
+              style: jumpStyle,
+              mode: mode as JumpMode,
+              // 定时跳传秒数、定数跳传个数 —— 计数页只认一种「目标数字」
+              target: mode === 'timer' ? seconds : count,
+              voice: voiceMode,
+            });
           }}
         >
           <Text style={[styles.goText, compact && { fontSize: 22 }]}>GO</Text>
         </TouchableOpacity>
 
-        {/* 成绩：入口先接提示，之后从这里进「历史成绩」记录页 */}
+        {/* 成绩：进成绩页（和右上角三点的「历史成绩」是同一个页面） */}
         <TouchableOpacity
           style={styles.sidePill}
           activeOpacity={0.85}
-          onPress={() => showHint('训练成绩记录待接入')}
+          onPress={onOpenWorkouts}
         >
           <MaterialCommunityIcons name="trophy-outline" size={15} color={C.text} />
           <Text style={styles.sideText}>成绩</Text>
@@ -474,6 +685,48 @@ function TrainingScreen({ onEditDuration, onStartJump }: Props) {
         </View>
       )}
 
+      {/*
+        右上角三点的菜单。
+        只放和训练页本身相关的两项 —— 历史成绩（进成绩页）和训练设置（待接入）。
+        按既定规矩：这里的按钮只服务本页，不跨页改别处的数据。
+      */}
+      {menuOpen && (
+        <View style={styles.countMask}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setMenuOpen(false)}
+          />
+          <View style={styles.menuWrap} pointerEvents="box-none">
+            <View style={styles.menuCard}>
+              <TouchableOpacity
+                style={styles.menuItem}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setMenuOpen(false);
+                  onOpenWorkouts();
+                }}
+              >
+                <MaterialCommunityIcons name="trophy-outline" size={17} color={C.text} />
+                <Text style={styles.menuText}>历史成绩</Text>
+              </TouchableOpacity>
+              <View style={styles.menuDivider} />
+              <TouchableOpacity
+                style={styles.menuItem}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setMenuOpen(false);
+                  showHint('训练设置待接入');
+                }}
+              >
+                <Ionicons name="settings-outline" size={17} color={C.text} />
+                <Text style={styles.menuText}>训练设置</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
       {hint !== null && (
         <Animated.View style={[styles.hintWrap, { opacity: hintOpacity }]} pointerEvents="none">
           <View style={styles.hintPill}>
@@ -494,11 +747,42 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
 
+  /* 今日计划：一条横滑胶囊带，高度按最小可读尺寸给，尽量不吃 hero 的空间 */
+  planRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginTop: 1, marginBottom: 8,
+  },
+  planLabel: { fontSize: 11, color: C.sub },
+  planList: { gap: 6, paddingRight: 4, alignItems: 'center' },
+  planPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    height: 26, paddingHorizontal: 9, borderRadius: 13,
+    backgroundColor: C.soft,
+  },
+  planPillOff: { opacity: 0.45 },
+  planPillDone: { backgroundColor: '#EFF8F2' },
+  planTime: {
+    fontSize: 10.5, color: C.gray,
+    fontVariant: ['tabular-nums'],
+  },
+  /**
+   * 跳法用次要灰：它和「定时跳 30 秒」都是内容，
+   * 但"怎么跳"是前提、"练多少"是主体，靠明度差分开才不会糊成一句。
+   */
+  planStyle: { fontSize: 11, color: C.sub },
+  planMode: { fontSize: 11, color: C.text, fontWeight: '500' },
+
   header: {
     flexDirection: 'row', alignItems: 'center',
     marginBottom: 14, paddingTop: 4,
   },
-  title: { fontSize: 22, fontWeight: 'bold', color: C.text, letterSpacing: 0.3 },
+  titleRow: { flex: 1, flexDirection: 'row', alignItems: 'baseline' },
+  title: { fontSize: 25, fontWeight: 'bold', color: C.text, letterSpacing: 0.3 },
+  /** 小字坐到大字的基线上 —— 中文字形底就在基线上，两条底边自然齐平 */
+  titleTip: {
+    flexShrink: 1, fontSize: 11, color: C.gray, marginLeft: 8,
+  },
+  // titleRow 已经 flex:1 占满，auto 只是双保险
   headAct: { marginLeft: 'auto' },
 
   hero: {
@@ -549,17 +833,41 @@ const styles = StyleSheet.create({
   modeTextOn: { color: C.white, fontWeight: 'bold' },
 
   /**
-   * AI 提示条：浅紫底 + 一行说明。
-   * 用紫色而不是蓝色，是因为「这块是 AI 算出来的」要和「点这里能操作」区分开。
+   * 跳法切换行：左边「跳法 并脚跳|换脚跳 ▶示范」，右边「AI 动作分析」小标签。
+   * 跳法用主色实心表示选中，AI 标签用浅紫 —— 一个能点、一个是说明，靠颜色分开。
    */
-  aiBar: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    marginTop: 10,
-    paddingHorizontal: 12, paddingVertical: 8,
-    borderRadius: 10,
+  styleRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    gap: 8, marginTop: 10,
+  },
+  styleSegWrap: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  styleSegLabel: { fontSize: 11, color: C.sub },
+  styleSeg: {
+    flexDirection: 'row', gap: 2, padding: 2, borderRadius: 11,
+    backgroundColor: C.white, borderWidth: 1, borderColor: '#E4EBF8',
+  },
+  styleSegItem: {
+    paddingHorizontal: 11, height: 25, borderRadius: 9,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  styleSegItemOn: { backgroundColor: C.primary },
+  styleSegText: { fontSize: 11, color: '#5C6577' },
+  styleSegTextOn: { color: C.white, fontWeight: 'bold' },
+
+  /** 示范视频入口：跟胶囊同高，描边而不是实心，避免和「选中态」抢注意力 */
+  demoBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    paddingHorizontal: 7, height: 25, borderRadius: 8,
+    backgroundColor: C.white, borderWidth: 1, borderColor: '#E4EBF8',
+  },
+  demoText: { fontSize: 11, color: C.sub },
+
+  aiChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 8, height: 25, borderRadius: 8,
     backgroundColor: C.aiSoft,
   },
-  aiBarText: { flex: 1, fontSize: 11, color: C.aiText, lineHeight: 15 },
+  aiChipText: { fontSize: 10, color: C.aiText },
 
   sportRow: { flexDirection: 'row', gap: 8, marginTop: 14, height: 86 },
   sportRowCompact: { height: 74, marginTop: 10 },
@@ -608,6 +916,30 @@ const styles = StyleSheet.create({
     zIndex: 40,
   },
   countDialogWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
+  menuWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'flex-end',
+    paddingTop: 92,
+    paddingRight: 20,
+  },
+  menuCard: {
+    minWidth: 156,
+    borderRadius: 14,
+    paddingVertical: 4,
+    backgroundColor: C.white,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
+  menuItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 9,
+    paddingHorizontal: 14, paddingVertical: 12,
+  },
+  menuText: { fontSize: 13, color: C.text },
+  menuDivider: { height: 1, marginHorizontal: 14, backgroundColor: C.line },
   countDialog: {
     width: 268,
     backgroundColor: C.white,

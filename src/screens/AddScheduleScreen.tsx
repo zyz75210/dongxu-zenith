@@ -1,11 +1,15 @@
 import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View,
+  Alert, Modal, ScrollView, StyleSheet, Switch, Text, TextInput,
+  TouchableOpacity, View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { C, WEEK_DAYS } from '../theme';
 import { Schedule, ScheduleType, Repeat } from '../data';
 import { dateKey, parseDateKey, weekdayIndex, repeatDates } from '../utils/date';
+import { MAX_SECONDS, MIN_SECONDS } from '../components/DurationPickerSheet';
+import { MAX_COUNT, MIN_COUNT, STANDARD } from '../workout';
+import { JUMP_STYLES, type JumpStyle } from '../jumpStyle';
 
 type Props = {
   /** 是否可见：页面常驻不卸载，靠它判断"重新打开了"从而重置表单 */
@@ -25,6 +29,8 @@ type Props = {
     init: { y: number; m: number; d: number },
     onPick: (y: number, m: number, d: number) => void,
   ) => void;
+  /** 打开跳绳时长面板（分/秒滚轮，和训练页同一个） */
+  onEditDuration: (currentSeconds: number, onPick: (totalSeconds: number) => void) => void;
   onOpenTime: (
     title: string,
     init: { h: number; m: number },
@@ -39,6 +45,32 @@ const types: { key: ScheduleType; label: string }[] = [
   { key: 'fitness', label: '体能' },
   { key: 'run', label: '跑步' },
   { key: 'rest', label: '休息' },
+];
+
+/**
+ * 跳绳的训练内容。
+ *
+ * 只选「练什么」，不填数值 —— 跳多少、跳多久每天都不同，
+ * 写死在计划里反而累赘，进训练页当场定更合理。
+ *
+ * 左边用图标而不是颜色点：日程类型靠颜色区分（马卡龙三色），
+ * 训练内容挨在下面，再用颜色会混；图标还能直接说明内容是什么。
+ */
+const ROPE_MODES: {
+  key: JumpMode;
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  /** 选中时的强调色。前两个用马卡龙色系里的奶绿 / 奶蓝，和日程类型那排同族 */
+  color: string;
+  /** 选中时的浅底：同色相的极淡版，不用半透明，免得叠在灰底上发脏 */
+  soft: string;
+  /** 还没做的项目：可选、能保存，但点了不会有训练入口，所以显示成灰的 */
+  ready: boolean;
+}[] = [
+  { key: 'timer', label: '定时跳', icon: 'timer-outline', color: '#2E9A6B', soft: '#EAF8F1', ready: true },
+  { key: 'count', label: '定数跳', icon: 'flag-outline', color: '#3B78D0', soft: '#ECF3FF', ready: true },
+  { key: 'trick', label: '花样跳', icon: 'sparkles-outline', color: '#AAB2BF', soft: '#F4F5F8', ready: false },
+  { key: 'free', label: '自由跳', icon: 'infinite-outline', color: '#AAB2BF', soft: '#F4F5F8', ready: false },
 ];
 
 /**
@@ -112,9 +144,32 @@ const clampTitle = (text: string) => {
 };
 
 // 新建日程时的默认值（编辑时全部由 editItem 覆盖）
+/**
+ * 训练内容的默认目标 = 该跳法的「标准档」。
+ *
+ * 成绩页的"最好成绩"只认固定档位：
+ *   并脚跳 1 分钟 / 300 个    换脚跳 30 秒 / 200 个
+ * 默认值直接落在这两个档上，用户照着默认练，成绩就自动能进评比 ——
+ * 否则练了一堆，一个都进不了榜，还以为统计坏了。
+ *
+ * 想练别的量随时改，改了只是不参与评比，训练和记录都不受影响。
+ */
+const DEFAULT_SECONDS = STANDARD.together.timerTarget;
+const DEFAULT_COUNT = STANDARD.together.countTarget;
+
+/** 秒数说成人话：30 秒 / 1 分 30 秒 / 30 分 */
+function formatSeconds(sec: number) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  if (m === 0) return `${s} 秒`;
+  if (s === 0) return `${m} 分`;
+  return `${m} 分 ${s} 秒`;
+}
+
 const BLANK = {
   title: '跳绳训练',
   type: 'rope' as ScheduleType,
+  ropeMode: 'timer' as JumpMode,
   note: '',
   remind: true,
   start: { h: 14, m: 0 },
@@ -122,10 +177,26 @@ const BLANK = {
 };
 
 function AddScheduleScreen({
-  visible = true, onClose, initialDate, editItem = null, presetMinutes, onOpenDate, onOpenTime, onSave,
+  visible = true, onClose, initialDate, editItem = null, presetMinutes,
+  onOpenDate, onEditDuration, onOpenTime, onSave,
 }: Props) {
   const [title, setTitle] = useState(BLANK.title);
   const [type, setType] = useState<ScheduleType>(BLANK.type);
+  /** 训练内容：只有跳绳用得到，切到别的类型时保留但不写入 */
+  const [ropeMode, setRopeMode] = useState<JumpMode>(BLANK.ropeMode);
+  /**
+   * 目标值分开存两份。
+   * 定时跳存分钟、定数跳存个数，量级完全不同（30 vs 500）——
+   * 共用一个变量的话，从定时跳 40 分钟切到定数跳会变成"40 个"，
+   * 再切回来又变成"500 分钟"，来回横跳。
+   */
+  const [timerSeconds, setTimerSeconds] = useState(DEFAULT_SECONDS);
+  /** 跳法：决定计数页用哪一套判据，默认并脚跳 */
+  const [jumpStyle, setJumpStyle] = useState<JumpStyle>('together');
+  const [countTarget, setCountTarget] = useState(DEFAULT_COUNT);
+  /** 目标编辑小窗 */
+  const [targetEditing, setTargetEditing] = useState(false);
+  const [targetDraft, setTargetDraft] = useState('');
   const [note, setNote] = useState(BLANK.note);
   const [remind, setRemind] = useState(BLANK.remind);
 
@@ -148,6 +219,13 @@ function AddScheduleScreen({
       if (editItem) {
         setTitle(editItem.title);
         setType(editItem.type);
+        setRopeMode(editItem.ropeMode ?? BLANK.ropeMode);
+        setJumpStyle(editItem.jumpStyle ?? 'together');
+        if (editItem.ropeMode === 'timer' && editItem.ropeTarget) {
+          setTimerSeconds(editItem.ropeTarget);
+        } else if (editItem.ropeMode === 'count' && editItem.ropeTarget) {
+          setCountTarget(editItem.ropeTarget);
+        }
         setNote(editItem.note ?? '');
         setRemind(editItem.remind ?? false);
         setDate(parseDateKey(editItem.date));
@@ -225,6 +303,62 @@ function AddScheduleScreen({
     setTitle(clamped);
   };
 
+  /**
+   * 打开目标编辑：
+   *   定时跳 → 分/秒滚轮（和训练页同一个面板，手感和观感统一）
+   *   定数跳 → 数字小窗（个数是整数，滚轮一格一格滚几十次太慢）
+   */
+  /**
+   * 切跳法时把目标同步成该跳法的标准档。
+   *
+   * 两种跳法的标准档不一样（并脚 1 分钟 / 换脚 30 秒），
+   * 切完还留着上一档的数字，很容易练出一堆进不了榜的成绩。
+   * 用户想要别的量，切完再改就是。
+   */
+  const pickJumpStyle = (k: JumpStyle) => {
+    setJumpStyle(k);
+    setTimerSeconds(STANDARD[k].timerTarget);
+    setCountTarget(STANDARD[k].countTarget);
+  };
+
+  const openTargetEditor = () => {
+    if (ropeMode === 'timer') {
+      onEditDuration(timerSeconds, applyTimerSeconds);
+      return;
+    }
+    if (ropeMode === 'count') {
+      setTargetDraft(String(countTarget));
+      setTargetEditing(true);
+    }
+  };
+
+  /** 滚轮确定的时长：按 1 秒 ~ 60 分钟收敛，被夹住时说一句 */
+  const applyTimerSeconds = (total: number) => {
+    const clamped = Math.min(MAX_SECONDS, Math.max(MIN_SECONDS, total));
+    setTimerSeconds(clamped);
+    if (clamped !== total) {
+      Alert.alert('超出范围', '跳绳时长只能在 1 秒 ~ 60 分钟之间，已按边界设定。');
+    }
+  };
+
+  /** 提交个数：越界就收敛到边界并说清楚，不静默改数字 */
+  const applyTarget = () => {
+    const n = parseInt(targetDraft.replace(/[^0-9]/g, ''), 10);
+    if (!Number.isFinite(n)) {
+      Alert.alert('数字不对', '请填一个数字。');
+      return;
+    }
+    const clamped = Math.min(MAX_COUNT, Math.max(MIN_COUNT, n));
+    if (clamped !== n) {
+      Alert.alert(
+        '超出范围',
+        `个数只能在 ${MIN_COUNT} ~ ${MAX_COUNT} 之间，已按 ${clamped} 设定。`,
+      );
+    }
+    setCountTarget(clamped);
+    setTargetEditing(false);
+  };
+
   // 训练内容：后期开发的预留入口，先给个轻提示，避免点了没反应像坏了
   const openTrainingPlaceholder = () => {
     Alert.alert('训练内容', '这里之后可以添加动作、组数、次数和重量，功能正在开发中。');
@@ -248,6 +382,17 @@ function AddScheduleScreen({
       tag: typeLabel,
       note: note.trim() || undefined,
       remind,
+      // 训练内容只有跳绳日程才有意义，别的类型不写这个字段
+      ...(type === 'rope' ? {
+        ropeMode,
+        // 花样跳 / 自由跳没有目标值
+        jumpStyle,
+        ...(ropeMode === 'timer'
+          ? { ropeTarget: timerSeconds }
+          : ropeMode === 'count'
+            ? { ropeTarget: countTarget }
+            : {}),
+      } : {}),
       // 编辑的是某一天的那一条，没有"重复"可言；新建时只有选了重复才带这个字段
       ...(editItem || repeat === 'none' ? {} : { repeat }),
     });
@@ -380,18 +525,123 @@ function AddScheduleScreen({
           })}
         </View>
 
-        {/* 训练内容：三类都是训练，始终显示；当前只是预留占位 */}
+        {/* 训练内容：跳绳是四种跳法可选；其他类型还是原来的占位 */}
         <Text style={[styles.label, styles.labelGap]}>训练内容</Text>
-        <View style={styles.trainingRow}>
-          <TouchableOpacity
-            style={styles.trainingPill}
-            onPress={openTrainingPlaceholder}
-            activeOpacity={0.6}
-          >
-            <Ionicons name="add" size={15} color={C.gray} />
-            <Text style={styles.trainingText}>添加训练</Text>
-          </TouchableOpacity>
-        </View>
+        {type === 'rope' ? (
+          <>
+            <View style={styles.typeRow}>
+              {ROPE_MODES.map((m) => {
+                const on = m.key === ropeMode;
+                return (
+                  <TouchableOpacity
+                    key={m.key}
+                    /*
+                     * 点已选中的那个 = 改目标值（用户说的"再次点击训练内容"）；
+                     * 点没选中的 = 换类型。选中的胶囊再点一下就是编辑，
+                     * 这样不用额外加一个按钮，手指也不用跑远。
+                     */
+                    onPress={() => {
+                      if (on && m.ready) openTargetEditor();
+                      else setRopeMode(m.key);
+                    }}
+                    style={[
+                      styles.typePill,
+                      on && { borderColor: m.color, backgroundColor: m.soft },
+                    ]}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={m.icon}
+                      size={14}
+                      color={on ? m.color : (m.ready ? C.sub : '#C2C8D2')}
+                    />
+                    <Text
+                      style={[
+                        styles.typeText,
+                        on && { color: m.color, fontWeight: '600' },
+                        !on && !m.ready && { color: '#C2C8D2' },
+                      ]}
+                    >
+                      {m.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* 目标值提示：只有能真正练的两个项目才有，花样跳/自由跳没有目标 */}
+            {(ropeMode === 'timer' || ropeMode === 'count') && (
+              <TouchableOpacity
+                style={styles.targetRow}
+                activeOpacity={0.7}
+                onPress={openTargetEditor}
+              >
+                <Ionicons
+                  name={ropeMode === 'timer' ? 'time-outline' : 'flag-outline'}
+                  size={13}
+                  color={C.primary}
+                />
+                <Text style={styles.targetValue}>
+                  {ropeMode === 'timer'
+                    ? `时长 ${formatSeconds(timerSeconds)}`
+                    : `个数 ${countTarget} 个`}
+                </Text>
+                <Text style={styles.targetHint}>点一下修改</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* 标准档说明：说清楚"练多少才进最好成绩评比"，省得练完发现没上榜 */}
+            {(ropeMode === 'timer' || ropeMode === 'count') && (
+              <Text style={styles.standardHint}>
+                最好成绩按标准档评比：{jumpStyle === 'together' ? '并脚跳' : '换脚跳'}
+                {' '}
+                {ropeMode === 'timer'
+                  ? formatSeconds(STANDARD[jumpStyle].timerTarget)
+                  : `${STANDARD[jumpStyle].countTarget} 个`}
+              </Text>
+            )}
+
+            {/*
+              跳法：和训练页那排是同一件事、同一套选项。
+              在这里先定好，从日程点「去训练」时直接按它选判据，
+              计数页就不用再问一次"你跳的是并脚还是换脚"。
+            */}
+            <Text style={[styles.label, styles.labelGap]}>跳法</Text>
+            <View style={styles.typeRow}>
+              {JUMP_STYLES.map((j) => {
+                const on = j.key === jumpStyle;
+                return (
+                  <TouchableOpacity
+                    key={j.key}
+                    style={[styles.typePill, on && styles.typePillOn]}
+                    onPress={() => pickJumpStyle(j.key)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={j.key === 'together' ? 'footsteps-outline' : 'swap-horizontal-outline'}
+                      size={14}
+                      color={on ? C.primary : C.sub}
+                    />
+                    <Text style={[styles.typeText, on && styles.typeTextOn]}>
+                      {j.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        ) : (
+          <View style={styles.trainingRow}>
+            <TouchableOpacity
+              style={styles.trainingPill}
+              onPress={openTrainingPlaceholder}
+              activeOpacity={0.6}
+            >
+              <Ionicons name="add" size={15} color={C.gray} />
+              <Text style={styles.trainingText}>添加训练</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* 备注 */}
         <View style={styles.noteHeader}>
@@ -436,6 +686,56 @@ function AddScheduleScreen({
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/*
+        目标值编辑小窗。
+        用弹窗而不是把输入框直接摆在表单里：训练内容那排已经有四个胶囊，
+        再加输入框会把这一块撑得很高，而且大多数人根本不会改这个数。
+      */}
+      <Modal
+        visible={targetEditing}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTargetEditing(false)}
+      >
+        <View style={styles.targetMask}>
+          <View style={styles.targetCard}>
+            <Text style={styles.targetTitle}>目标个数</Text>
+            <TextInput
+              style={styles.targetInput}
+              value={targetDraft}
+              onChangeText={(t) => setTargetDraft(t.replace(/[^0-9]/g, ''))}
+              keyboardType="number-pad"
+              maxLength={5}
+              autoFocus
+              selectTextOnFocus
+              returnKeyType="done"
+              onSubmitEditing={applyTarget}
+              placeholder={String(countTarget)}
+              placeholderTextColor="#C4C9D2"
+            />
+            <Text style={styles.targetRangeText}>
+              {MIN_COUNT} – {MAX_COUNT} 个
+            </Text>
+            <View style={styles.targetBtns}>
+              <TouchableOpacity
+                style={styles.targetBtn}
+                activeOpacity={0.8}
+                onPress={() => setTargetEditing(false)}
+              >
+                <Text style={styles.targetBtnText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.targetBtn, styles.targetBtnMain]}
+                activeOpacity={0.85}
+                onPress={applyTarget}
+              >
+                <Text style={[styles.targetBtnText, styles.targetBtnMainText]}>确定</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -517,6 +817,41 @@ const styles = StyleSheet.create({
   },
   typePillOn: { borderColor: C.primary, backgroundColor: '#F0F5FF' },
   typeDot: { width: 7, height: 7, borderRadius: 4 },
+
+  targetMask: {
+    flex: 1, backgroundColor: 'rgba(20,24,36,0.4)',
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40,
+  },
+  targetCard: {
+    width: '100%', borderRadius: 18, padding: 20, gap: 10,
+    backgroundColor: C.white,
+  },
+  targetTitle: { fontSize: 14, fontWeight: '700', color: C.text, textAlign: 'center' },
+  targetInput: {
+    height: 52, borderRadius: 14, textAlign: 'center',
+    backgroundColor: C.soft, color: C.text,
+    fontSize: 24, fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  targetRangeText: { fontSize: 11, color: C.gray, textAlign: 'center' },
+  targetBtns: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  targetBtn: {
+    flex: 1, height: 44, borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.soft,
+  },
+  targetBtnText: { fontSize: 13, color: C.sub, fontWeight: '600' },
+  targetBtnMain: { backgroundColor: C.primary },
+  targetBtnMainText: { color: C.white },
+
+  /** 训练内容的目标值：跟在胶囊下面一行，轻描淡写但可点 */
+  targetRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    marginTop: 8, paddingHorizontal: 2,
+  },
+  targetValue: { fontSize: 12, color: C.text, fontWeight: '600' },
+  targetHint: { fontSize: 11, color: C.gray, marginLeft: 2 },
+  standardHint: { fontSize: 10, color: C.gray, marginTop: 6, marginLeft: 2 },
   typeText: { fontSize: 12, color: C.gray },
   typeTextOn: { color: C.primary, fontWeight: '500' },
 

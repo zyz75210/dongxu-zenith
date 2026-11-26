@@ -18,7 +18,7 @@ type Props = {
   /** 点右侧类型胶囊：切换完成状态 */
   onToggle: () => void;
   /** 可选：点「去训练」入口（仅主页当天列表传，历史页不传就不显示） */
-  onGoTrain?: () => void;
+  onGoTrain?: (item: Schedule) => void;
 };
 
 /**
@@ -29,6 +29,15 @@ type Props = {
 function ScheduleCapsule({ item, todayKey, onPress, onToggle, onGoTrain }: Props) {
   // 休息日是「计划内的不做事」：不需要勾完成，胶囊只作状态标识，不给点击暗示
   const isRest = item.type === 'rest';
+  /*
+   * 「去训练」能不能点：
+   *   只有跳绳、而且训练内容是定时跳或定数跳时才真的能跳。
+   *   体能 / 跑步 / 休息没有对应的计数页；花样跳和自由跳还没做，点了也没反应，
+   *   所以统一显示成灰的、点不动 —— 比弹一个"功能开发中"更诚实，
+   *   因为它本来就不该是这一刻的入口。
+   */
+  const canTrain = item.type === 'rope'
+    && (item.ropeMode === undefined || item.ropeMode === 'timer' || item.ropeMode === 'count');
   const state: PillState = isRest
     ? 'rest'
     : item.completed
@@ -53,11 +62,14 @@ function ScheduleCapsule({ item, todayKey, onPress, onToggle, onGoTrain }: Props
           {onGoTrain && !isRest && (
             <TouchableOpacity
               style={styles.goTrain}
-              activeOpacity={0.6}
-              onPress={onGoTrain}
+              activeOpacity={canTrain ? 0.6 : 1}
+              disabled={!canTrain}
+              onPress={() => onGoTrain(item)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Text style={styles.goTrainText}>去训练 ›</Text>
+              <Text style={[styles.goTrainText, !canTrain && styles.goTrainOff]}>
+                去训练 ›
+              </Text>
             </TouchableOpacity>
           )}
         </View>
@@ -89,6 +101,8 @@ const styles = StyleSheet.create({
   time: { fontSize: 11, color: C.sub },
   goTrain: { marginLeft: 10 },
   goTrainText: { fontSize: 12, color: C.primary, fontWeight: '500' },
+  /** 不可训练：转灰，但保留位置 —— 版式不因为类型不同而跳动 */
+  goTrainOff: { color: '#C2C8D2' },
 });
 
 // 列表里可能有几十条，memo 让没变化的那几条跳过重渲染
